@@ -51,19 +51,25 @@ open ~/Downloads/TVBoxMac.app
 
 然后：设置 → 粘贴 `https://www.iyouhun.com/tv/dc` → 导入 → 左侧选站点 → 浏览/搜索 → 点开播放。
 
-## 本地开发
+## 本地开发（推荐，Mac 上）
 
 ```bash
-swift build            # debug
-swift test             # 跑 TVBoxMacCoreTests（全部 mock，不联网）
-swift run TVBoxMac     # 直接跑 SwiftUI 应用
-bash scripts/make-app-bundle.sh   # 打 .app
+git clone https://github.com/jiangchen516/tvbox-mac.git && cd tvbox-mac
+swift build -c release          # 需 Swift ≥ 5.9（Xcode 自带）
+swift test                      # 50 个单测（全 mock，不联网）
+swift run TVBoxMac              # 直接跑
+bash scripts/make-app-bundle.sh # 出 TVBoxMac.app + zip（ad-hoc 签名）
 ```
 
-**验证状态**（2026-09-17）：
-- ✅ `TVBoxMacCore` 核心逻辑库在 Linux (Swift 5.10.1) 上 `swift build` 通过、44 个单元测试全绿
-- ⏳ SwiftUI 应用层（`TVBoxMac` target）只能在 macOS 编译，首编靠 CI
-- 跨平台设计：网络层抽象为 `HTTPFetching` 协议 + `HTTPResponse`，Spider/Player 用 `#if canImport` 做平台隔离
+无第三方依赖，全是系统框架。环境要求：**macOS 13+ + Command Line Tools**。
+
+## 当前状态（2026-09-17）
+
+- ✅ 核心库 Linux (Swift 5.10.1) 编译 + 50 测试全绿；最后全绿 macOS CI：run `35232665274`（`0e28385`）
+- ⛔ **HEAD 红**：卡在 IDN 中文域名站点（`www.饭太硬.net`）请求被 URLSession 拒绝，
+  修复方案与验证步骤见 **[HANDOFF.md](HANDOFF.md) §4.1**（含 CI 工具链裁剪坑清单）
+- 使用：解压 zip → `xattr -d com.apple.quarantine TVBoxMac.app` → 设置导入
+  `https://www.iyouhun.com/tv/dc` → 选站点浏览/播放
 
 ## 免责声明
 
