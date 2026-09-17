@@ -5,10 +5,20 @@ import TVBoxMacCore
 struct HomeView: View {
     @EnvironmentObject var appState: AppState
     @State private var search: String = ""
+    // jar 型 Spider（csp_/type0/3）在 macOS 无法运行，默认只看能用的 CatVod 源
+    @State private var catVodOnly: Bool = true
+
+    var visibleSites: [Site] {
+        let base = appState.enabledSites
+        let searched = search.isEmpty ? base : base.filter {
+            $0.name.localizedCaseInsensitiveContains(search) || $0.api.localizedCaseInsensitiveContains(search)
+        }
+        return catVodOnly ? searched.filter { !$0.isSpiderSite } : searched
+    }
 
     var body: some View {
         List(selection: $appState.selectedSite) {
-            ForEach(appState.enabledSites, id: \.id) { site in
+            ForEach(visibleSites, id: \.id) { site in
                 SiteRow(site: site)
                     .tag(site)
                     .contextMenu {
@@ -23,13 +33,25 @@ struct HomeView: View {
         .listStyle(.sidebar)
         .navigationTitle("TVBox")
         .safeAreaInset(edge: .top) {
-            HStack {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("搜索全部站点…", text: $search)
-                    .textFieldStyle(.plain)
+            VStack(spacing: 6) {
+                HStack {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    TextField("搜索全部站点…", text: $search)
+                        .textFieldStyle(.plain)
+                }
+                .padding(8)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                HStack {
+                    Toggle("只看可用源", isOn: $catVodOnly)
+                        .toggleStyle(.checkbox)
+                        .font(.callout)
+                    Spacer()
+                    Text("显示 \(visibleSites.count) / \(appState.enabledSites.count)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 4)
             }
-            .padding(8)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
             .padding(8)
         }
     }
