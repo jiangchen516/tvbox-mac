@@ -211,21 +211,37 @@ public actor SpiderRuntime {
 
     private func callEntry(_ name: String, args: [Any]) throws -> String {
         guard let ctx = context, loaded else { throw SpiderError.jsLoadFailed("spider 未加载") }
-        // 从全局作用域取入口函数：直接求值标识符
-        // （该工具链 JSContext/JSValue 的 property 访问 API 不完整，避开下标/子成员写法）
+        // 入口调用整体在 JS 侧执行：evaluateScript 求值一段 wrapper 脚本
+        // （该工具链的 JSValue property/方法不可用，只用 evaluateScript + exception）
+        // 参数 JSON 序列化后安全内嵌（JSON 字符串可合法作为 JS 字面量）
+        guard let argsData = try? JSONSerialization.data(withJSONObject: args, options: [.fragmentsAllowed]),
+              let argsJson = String(data: argsData, encoding: .utf8) else {
+            throw SpiderError.jsException("参数序列化失败")
+        }
+        let script = """
+        (function(){
+            var f = \(name);
+            if (typeof f !== 'function') { return 'TVBOX_ERROR:entry_missing'; }
+            var r = f.apply(null, \(argsJson));
+            return r === null || r === undefined ? '' : String(r);
+        })();
+        """
         ctx.exception = nil
-        guard let fn = ctx.evaluateScript(name), fn.isFunction else {
+        guard let ret = ctx.evaluateScript(script) as? String else {
+            if let exc = ctx.exception {
+                let msg = exc.isString ? (exc.toString() ?? "?") : "未知异常"
+                throw SpiderError.jsException(msg)
+            }
             throw SpiderError.entryMissing(name)
         }
-        let ret = fn.call(withArguments: args)
         if let exc = ctx.exception {
             let msg = exc.isString ? (exc.toString() ?? "?") : "未知异常"
             throw SpiderError.jsException(msg)
         }
-        guard let s = ret?.toString() else {
-            throw SpiderError.jsException("\(name) 返回空")
+        if ret == "TVBOX_ERROR:entry_missing" {
+            throw SpiderError.entryMissing(name)
         }
-        return s
+        return ret
     }
 
     public func search(key: String, page: Int) throws -> String {
