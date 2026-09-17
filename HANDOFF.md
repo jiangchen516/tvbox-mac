@@ -1,28 +1,31 @@
 # TVBoxMac 交接文档
 
-> 交接时间：2026-09-17 ｜ 最后提交：`cd44ff2` ｜ 仓库：`jiangchen516/tvbox-mac`（private）
+> 交接时间：2026-09-17 ｜ 仓库：`jiangchen516/tvbox-mac`（private）
 > 开发方式变更：从「Linux 服务器写码 + GitHub Actions CI 出包」转为 **Mac 本地开发**。
 
 ---
 
 ## 1. 当前状态（一句话）
 
-核心功能链（配置导入 → CatVod 浏览/搜索/详情/选集 → 播放）已通，**卡在 1 个
-未修复的 P0 bug：中文域名站点（IDN）无法发起网络请求**，导致导入多仓后
-点任何中文域名站点都报「网络错误：不支持的URL」。
+核心功能链（配置导入 → CatVod 浏览/搜索/详情/选集 → 播放）已通。**P0 bug（IDN 中文域名）
+已在代码层修复**：纯 Swift Punycode（RFC 3492，`Punycode.swift`）兜底 + ICU 优先，
+标准对拍 22/22（与 Python stdlib 一致），待 CI + 真机实测确认。
 
 | 项 | 状态 |
 |---|---|
 | Linux 核心库 `TVBoxMacCore` | ✅ 编译通过，**50/50 测试全绿**（Swift 5.10.1） |
-| macOS CI（macos-14 runner） | ❌ HEAD 红：仅 4 个 `IDNATests` 失败（runner 的 ICU 无 IDNA 变换，`applyingTransform("IDNA")` 返回 nil） |
+| macOS CI（macos-14 runner） | ⏳ IDNA 修复已提交，待 CI 验证（新 `IDNATests` 两平台都断言真 punycode，应转绿） |
 | 最后一次全绿 CI | ✅ run `35232665274`（commit `0e28385`），artifact `TVBoxMac.app.zip`（435KB）仍可从 Actions 下载 |
 | 用户实测已验证 | ✅ 窗口滚动、裸数组单仓源格式、`.app.zip` artifact 结构 |
-| 已写代码待实测 | ⏳ 设置页「全部启用/全部禁用」按钮、JSON 错误信息（带响应片段） |
+| 已写代码待实测 | ⏳ IDN 中文域名站点请求（Punycode 兜底）、设置页「全部启用/全部禁用」按钮、JSON 错误信息（带响应片段） |
 
-**注意**：HEAD（`cd44ff2`）相比最后全绿版（`0e28385`）多了：BOM 剥离、
-友好 JSON 错误、IDNA 转换、全部启用/禁用。IDNA 转换在 ICU 失效时是
-**no-op 回退**（原样返回），不引入新崩溃——所以旧包行为不变，新包等
-IDNA 修好才有完整收益。
+**注意**：本机实测发现（2026-09-17，Mac，macOS 26.6.2 + CLT Swift 6.4）：
+1. `applyingTransform("IDNA")` **本机也返回 nil**（不只 CI runner）——这就是走纯 Swift
+   Punycode 兜底的原因（HANDOFF §4.1 方案 b）。
+2. 本机 CLT **不带 XCTest**（只带 Swift Testing 的 `Testing.framework`）→ `swift test`
+   本机跑不了；**也不带 `SwiftUIMacros` 插件** → SwiftUI 应用层本机编不了
+   （核心库 `swift build --target TVBoxMacCore` 不受影响）。
+   两者装完整版 Xcode 即解决（App Store → `sudo xcode-select -s`）。
 
 ## 2. Mac 本地开发环境
 
@@ -87,24 +90,26 @@ swift run TVBoxMac               # 或直接跑
 
 ## 4. 遗留问题（按优先级）
 
-### 4.1 P0：IDN 中文域名站点全部请求失败 ⬅ 唯一阻断项
+### 4.1 P0：IDN 中文域名站点请求失败 ✅ 代码已修复（方案 b）
 - **现象**：导入 iyouhun 聚合后，点任何 api 为中文域名的站点
   （`www.饭太硬.net` 等，聚合源里占多数）→「加载失败：网络错误：不支持的URL」
 - **根因**（已定位）：`URL(string:)` 能构造非 ASCII host，但 **URLSession
   拒绝发送**，报 `URLError` "unsupported URL"。中文域名必须先转 Punycode
   （`www.饭太硬.net` → `www.xn--sss604efuw.net`）
-- **现状**：`IDNA.swift` 用 Apple ICU（`applyingTransform(StringTransform(rawValue:"IDNA"))`）
-  转换，已接入 `HTTPClient.get` 与 Spider 的 `fetchImpl`。但在 GitHub
-  macos-14 runner 上该变换**返回 nil**（runner 的 ICU 被裁剪），4 个
-  IDNATests 挂掉 → CI 红。
-- **下一步（二选一）**：
-  a. **先在你 Mac 上验证**：`swift test --filter IDNATests`。本机 ICU 是
-     完整的，大概率能过 → 若过，则只修 CI（把 IDNATests 里"转换结果"
-     断言改成 `if let` 条件断言/标记 skip），IDNA 功能即告完成。
-  b. 若本机也返回 nil → 实现**纯 Swift Punycode**（RFC 3492 编码，参考
-     `docs/punycode-reference.js`，本地用 Python stdlib 生成标准答案对拍，
-     不用烧 CI）。`IDNA.swift` 的 `idnHost` 改成「ICU 优先，失败走手写」。
-- **验证方式**：修复后导入 iyouhun → 点中文域名站点 → 能出分类/列表即通
+- **已做（方案 b，2026-09-17）**：
+  1. 实测确认：`applyingTransform("IDNA")` **本机也返回 nil**（不只 CI runner），
+     方案 a 不成立。
+  2. 新增 `Punycode.swift`：纯 Swift RFC 3492 编码（忠实移植
+     `docs/punycode-reference.js`），含 `toASCII`（域名级，RFC 3490 分隔符
+     `'。''．''｡'` 归一）与 `encode`（label 级）。
+  3. `IDNA.idnHost` 改为「**ICU 优先，失败走手写**」；手写实现跨平台一致，
+     Linux passthrough 去掉。
+  4. `IDNATests` 去掉平台门控，两平台都断言真 punycode + 标准向量
+     （这同时修掉 CI 红的 4 个 IDNATests）。
+  5. 验证：与 Python stdlib 标准答案对拍 **22/22**（含连字符 label、
+     多 label、分隔符、urlString/url 各入口）；核心库 release 编译通过。
+- **下一步**：push → macOS CI 全绿 → 装完整版 Xcode 后本机出包实测
+  （导入 iyouhun → 点中文域名站点 → 能出分类/列表即通）
 
 ### 4.2 P1：单仓源导入失败「配置不是合法JSON」
 - **现象**：导入 `http://www.饭太硬.net/tv` 报 `配置不是合法JSON`
@@ -168,9 +173,10 @@ swift run TVBoxMac               # 或直接跑
 
 ## 7. 快速命令速查
 ```bash
-swift build -c release          # 编译（含 SwiftUI 应用）
-swift test                      # 50 个单测（mock，不联网）
-swift test --filter IDNATests   # 只测 IDNA（判断本机 ICU 是否可用）
+bash scripts/setup.sh           # 一键：环境自检 + 编译 + 打 .app（--test 加跑单测，--run 直接跑）
+swift build -c release          # 编译（含 SwiftUI 应用；本机 CLT 缺 SwiftUIMacros 会挂 → 见 §1 注意）
+swift build --target TVBoxMacCore -c release   # 只编核心库（本机可用）
+swift test                      # 50 个单测（mock，不联网；本机 CLT 缺 XCTest 跑不了 → CI 跑）
 swift run TVBoxMac              # 直接跑应用
 bash scripts/make-app-bundle.sh # 出 TVBoxMac.app + dist/TVBoxMac.app.zip
 xattr -d com.apple.quarantine TVBoxMac.app   # 首次运行解除隔离

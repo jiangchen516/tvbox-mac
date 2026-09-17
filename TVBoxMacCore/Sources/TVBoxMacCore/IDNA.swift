@@ -5,8 +5,9 @@
 // 因此发请求前必须把 host 转成 A-label（Punycode）。
 //
 // 实现策略：
-//   - macOS（真实运行平台）：Apple 官方 CFStringTransform IDNA 转换，权威正确。
-//   - Linux（仅 CI 编译 + 单测）：passthrough。Linux 测试全部走 mock 不发真请求。
+//   - macOS：Apple ICU IDNA 转换优先（完整 ICU 环境下权威正确）；
+//     实测部分 macOS 环境与 CI runner 的 ICU 被裁剪，applyingTransform("IDNA") 返回 nil。
+//   - ICU 缺失时：纯 Swift Punycode（RFC 3492，见 Punycode.swift）兜底，跨平台一致。
 import Foundation
 
 public enum IDNA {
@@ -42,14 +43,14 @@ public enum IDNA {
     public static func idnHost(_ host: String) -> String {
         guard host.unicodeScalars.contains(where: { $0.value >= 0x80 }) else { return host }
         #if os(macOS)
-        // Apple ICU 的 IDNA 转换（iOS/macOS 标准做法：StringTransform "IDNA"）。
-        // 注意：CFStringTransform 的 kCFStringIDNAConvertTransform 常量未导出到 Swift，
-        // StringTransform 也没有 .idnaConvert 成员，rawValue: "IDNA" 是公开 API。
-        let tf = StringTransform(rawValue: "IDNA")
-        return host.applyingTransform(tf, reverse: false) ?? host
-        #else
-        // Linux：passthrough（仅编译/单测用，真实 app 跑在 macOS）
-        return host
+        // Apple ICU 的 IDNA 转换优先（完整 ICU 环境下权威正确，含大小写/归一化处理）。
+        // 注意：CI runner 与部分 macOS 环境的 ICU 被裁剪，该变换运行时返回 nil。
+        if let transformed = host.applyingTransform(StringTransform(rawValue: "IDNA"), reverse: false) {
+            return transformed
+        }
         #endif
+        // 纯 Swift Punycode 兜底（RFC 3492，对照 docs/punycode-reference.js 移植）：
+        // 跨平台一致，ICU 缺失（返回 nil / Linux 无 CFStringTransform）时唯一可用路径
+        return Punycode.toASCII(host)
     }
 }
