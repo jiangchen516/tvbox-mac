@@ -63,4 +63,11 @@ else
   echo "warning: codesign 不可用，跳过签名" >&2
 fi
 
-echo "OK: $APP"
+# 打成 zip（顶层即 TVBoxMac.app/），分发/CI 上传用
+# 注意：upload-artifact 的 path 指目录时只上传其【内容】，会丢 .app 外壳，
+# 所以产物是单文件 zip，上传/下载后解压即得正确的 .app
+mkdir -p dist
+rm -f "dist/TVBoxMac.app.zip"
+ditto -c -k --sequesterRsrc --keepParent "$APP" "dist/TVBoxMac.app.zip"
+
+echo "OK: $APP + dist/TVBoxMac.app.zip"

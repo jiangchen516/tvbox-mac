@@ -21,8 +21,8 @@ jobs:
       - name: Make .app bundle
         run: bash scripts/make-app-bundle.sh
 
-      - name: Upload TVBoxMac.app
+      - name: Upload TVBoxMac.app.zip
         uses: actions/upload-artifact@v4
         with:
-          name: TVBoxMac.app
-          path: TVBoxMac.app
+          name: TVBoxMac.app.zip
+          path: dist/TVBoxMac.app.zip
