@@ -42,10 +42,8 @@ public enum IDNA {
     public static func idnHost(_ host: String) -> String {
         guard host.unicodeScalars.contains(where: { $0.value >= 0x80 }) else { return host }
         #if os(macOS)
-        let cf = CFStringCreateMutable(nil, 0)
-        CFStringAppend(cf, host)
-        CFStringTransform(cf, nil, kCFStringIDNAConvertTransform, false)
-        return cf as String
+        // Apple 官方 IDNA 转换（NSString transform API，等价 CFStringTransform IDNA）
+        return host.applyingTransform(.idnaConvert, reverse: false) ?? host
         #else
         // Linux：passthrough（仅编译/单测用，真实 app 跑在 macOS）
         return host

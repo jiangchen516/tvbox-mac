@@ -43,23 +43,32 @@ public enum ConfigLoader {
             return TVBoxConfig(sites: sites)
         case UInt8(ascii: "{"):
             guard let config = try? JSONDecoder().decode(TVBoxConfig.self, from: payload) else {
-                throw ConfigLoaderError.notJson("\(sourceDesc) \(snippet(payload))")
+                throw ConfigLoaderError.notJson("\(sourceDesc) —— \(describeResponse(payload))")
             }
             guard !config.sites.isEmpty else {
                 throw ConfigLoaderError.noSites(sourceDesc)
             }
             return config
         default:
-            // 报错带上响应开头片段：源站可能返回 CF 防护页/HTML 等非 JSON 内容，
-            // 片段是远程调试的关键线索
-            throw ConfigLoaderError.notJson("\(sourceDesc) \(snippet(payload))")
+            // 说人话：告诉用户实际拿到了什么、大概率是什么问题
+            throw ConfigLoaderError.notJson("\(sourceDesc) —— \(describeResponse(payload))")
         }
     }
 
-    private static func snippet(_ data: Data, _ n: Int = 120) -> String {
-        let s = String(data: data.prefix(n), encoding: .utf8)
-            ?? "(二进制数据 \(data.count) 字节)"
-        return "[响应开头: \(s.replacingOccurrences(of: "\n", with: " ").replacingOccurrences(of: "\r", with: ""))]"
+    /// 把"响应不是 JSON"翻译成能直接指导下一步排查的人话
+    private static func describeResponse(_ payload: Data) -> String {
+        guard !payload.isEmpty else { return "服务器返回了空内容（0 字节），可能地址不对或服务端异常" }
+        let compact = String(data: payload.prefix(200), encoding: .utf8)?
+            .replacingOccurrences(of: "\n", with: " ").replacingOccurrences(of: "\r", with: "")
+            ?? "(无法按文本读取，可能是二进制)"
+        let low = compact.lowercased()
+        if low.contains("<html") || low.contains("<!doctype html") {
+            return "服务器返回的是一个 HTML 网页而不是配置（通常是反爬拦截页，或这个地址不是配置文件）。你可以用浏览器直接打开这个地址对比一下。响应开头: \(compact.prefix(80))"
+        }
+        if compact.hasPrefix("{") || compact.hasPrefix("[") {
+            return "返回的内容看起来是 JSON，但结构不是我们认识的配置格式（应该是 [{站点…}] 数组或 {\"sites\":[…]} 对象）。响应开头: \(compact.prefix(80))"
+        }
+        return "返回的内容既不是 JSON 也不是可识别的格式。响应开头: \(compact.prefix(80))"
     }
 
     /// 加载单个配置（完整 JSON 或裸站点数组）
