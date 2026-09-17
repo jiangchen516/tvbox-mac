@@ -1,0 +1,36 @@
+{
+  "code": 0,
+  "page": 1,
+  "pagecount": 5,
+  "limit": 20,
+  "total": 99,
+  "list": [
+    {
+      "vod_id": 101,
+      "vod_name": "测试电影A",
+      "type_id": 1,
+      "type_name": "电影",
+      "vod_year": "2025",
+      "vod_area": "大陆",
+      "vod_remarks": "更新至05集",
+      "vod_pic": "https://img.example.com/a.jpg",
+      "vod_actor": "演员1, 演员2",
+      "vod_director": "导演X",
+      "vod_content": "这是一段简介。",
+      "vod_play_from": "线路1#线路2",
+      "vod_play_url": "第1集|https://cdn.example.com/a1.m3u8#第2集|https://cdn.example.com/a2.m3u8$$$第1集|https://cdn.example.com/b1.m3u8#第2集|https://cdn.example.com/b2.m3u8"
+    },
+    {
+      "vod_id": 102,
+      "vod_name": "测试电影B",
+      "type_id": 1,
+      "type_name": "电影",
+      "vod_year": "2024",
+      "vod_area": "美国",
+      "vod_remarks": "",
+      "vod_pic": "",
+      "vod_play_from": "直连",
+      "vod_play_url": "第1集|https://cdn.example.com/c1.mp4"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "urls": [
+    {"name": "🚀游魂┃饭太硬", "url": "https://example.com/tv/fty.json"},
+    {"name": "🚀游魂┃肥猫", "url": "https://example.com/tv/fm.json"},
+    {"name": "🚀游魂┃PG", "url": "https://example.com/tv/pg.json"},
+    {"name": "😹游魂┃短剧", "url": "https://example.com/tv/dj.json"},
+    {"name": "坏链接", "url": "not-a-valid-url"}
+  ]
+}

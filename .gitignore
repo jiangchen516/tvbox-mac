@@ -1,0 +1,25 @@
+# Build artifacts
+.build/
+.swiftpm/
+*.xcodeproj
+*.xcworkspace
+DerivedData/
+xcuserdata/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# App bundles (CI 产物，本地手工构建产物不入库)
+*.app
+
+# Env / secrets
+.env
+*.local.json
+
+# 调研临时材料（TVBox 安卓参考源码、反编译产物，不入库）
+.tmp_*
+references/
+
+# Swift 工具链（本机装在 ~/swift-toolchain，不在仓库内，无需忽略）

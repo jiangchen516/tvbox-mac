@@ -1,0 +1,10 @@
+#EXTM3U
+#EXTINF:-1 tvg-id="test" group-title="测试",测试频道
+https://live.example.com/stream/test.m3u8
+#EXTINF:-1 tvg-id="ad" group-title="广告",广告频道
+#EXTVLCOPT:http-referrer=https://ad.example.com
+https://ad.example.com/stream/ad.m3u8
+#EXTINF:-1 tvg-id="test2" group-title="测试",测试频道2
+https://live.example.com/stream/test2.m3u8?adurl=1&token=abc
+#EXT-X-COMMENT:广告
+https://ad.example.com/stream/x.m3u8
