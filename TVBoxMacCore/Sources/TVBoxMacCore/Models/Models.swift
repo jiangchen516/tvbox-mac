@@ -4,7 +4,7 @@
 //   顶层配置键: sites / parses / flags / spider / lives / ads / ijk / rules
 //   聚合列表键: urls（iyouhun 等聚合仓格式）
 //   Site 键:    key, name, api, type, categories, searchable, quickSearch, filterable, playUrl, ext,
-//               （新版可选）header, ua, spider
+//               jar,（新版可选）header, ua, spider
 //   Parse 键:   name, url, type(0=直接拼接,1=JSON解析), ext(JSON对象, base64url 后作 cat_ext 参数)
 //
 // ⚠️ 真实源配置千差万别（字段缺失/类型漂移），TVBoxConfig/Site/ParseRule/Vod
@@ -196,24 +196,30 @@ public struct AggregateEntry: Codable, Sendable {
 public struct Site: Codable, Sendable, Identifiable, Hashable {
     public var key: String                    // 站点唯一 key
     public var name: String
-    public var api: String                    // catvod URL（type=1）或 spider JS URL（type=0）
-    public var type: Int                      // 0=js spider, 1=catvod/json
+    public var api: String                    // catvod URL（type=1）或 spider JS URL / csp_ 类名（type=0/3）
+    public var type: Int                      // 0=js spider, 1=catvod/json, 3=jar spider（api 为 csp_ 类名）
     public var categories: [String]?
     public var searchable: Int
     public var quickSearch: Int
     public var filterable: Int
     public var playUrl: String?
     public var ext: JSONValue?
+    public var jar: String?                   // 站点级 spider jar/js 地址（type=3 常见）
     public var header: String?
     public var ua: String?
     public var spider: String?
 
     public var id: String { key.isEmpty ? (name + "|" + api) : key }
 
+    /// spider 型站点：type 0/3，或 api 为 csp_ 前缀（TVBox 约定：api 是 spider 类名不是 URL）
+    public var isSpiderSite: Bool {
+        type == 0 || type == 3 || api.lowercased().hasPrefix("csp_")
+    }
+
     public init(key: String = "", name: String, api: String, type: Int = 1,
                 categories: [String]? = nil, searchable: Int = 1, quickSearch: Int = 1,
                 filterable: Int = 1, playUrl: String? = nil, ext: JSONValue? = nil,
-                header: String? = nil, ua: String? = nil, spider: String? = nil) {
+                jar: String? = nil, header: String? = nil, ua: String? = nil, spider: String? = nil) {
         self.key = key
         self.name = name
         self.api = api
@@ -224,6 +230,7 @@ public struct Site: Codable, Sendable, Identifiable, Hashable {
         self.filterable = filterable
         self.playUrl = playUrl
         self.ext = ext
+        self.jar = jar
         self.header = header
         self.ua = ua
         self.spider = spider
@@ -246,6 +253,7 @@ public struct Site: Codable, Sendable, Identifiable, Hashable {
         self.filterable = LenientJSON.int(raw["filterable"]) ?? 1
         self.playUrl = LenientJSON.str(raw["playUrl"])
         self.ext = raw["ext"]
+        self.jar = LenientJSON.str(raw["jar"])
         self.header = LenientJSON.str(raw["header"])
         self.ua = LenientJSON.str(raw["ua"])
         self.spider = LenientJSON.str(raw["spider"])
@@ -263,6 +271,7 @@ public struct Site: Codable, Sendable, Identifiable, Hashable {
         try c.encode(filterable, forKey: .filterable)
         try c.encodeIfPresent(playUrl, forKey: .playUrl)
         try c.encodeIfPresent(ext, forKey: .ext)
+        try c.encodeIfPresent(jar, forKey: .jar)
         try c.encodeIfPresent(header, forKey: .header)
         try c.encodeIfPresent(ua, forKey: .ua)
         try c.encodeIfPresent(spider, forKey: .spider)
@@ -270,7 +279,7 @@ public struct Site: Codable, Sendable, Identifiable, Hashable {
 
     private enum KV: String, CodingKey {
         case key, name, api, type, categories, searchable, quickSearch, filterable,
-             playUrl, ext, header, ua, spider
+             playUrl, ext, jar, header, ua, spider
     }
 }
 

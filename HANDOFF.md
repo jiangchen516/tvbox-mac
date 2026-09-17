@@ -26,6 +26,11 @@
    本机跑不了；**也不带 `SwiftUIMacros` 插件** → SwiftUI 应用层本机编不了
    （核心库 `swift build --target TVBoxMacCore` 不受影响）。
    两者装完整版 Xcode 即解决（App Store → `sudo xcode-select -s`）。
+3. **jar 型 Spider 是 TVBox 生态主流形态**（用户实配 1625 个 type3 vs 44 个 type1）：
+   `csp_Xxx` 的 api 是**类名不是 URL**，实现在配置级 `spider` 字段指向的 **`.jar`（安卓
+   dex）**里，macOS 无法运行（已实测 4 个 jar 全是 classes.dex）。已修：路由
+   （csp_/type0/3 → Spider 路径）+ jar 魔数识别 + 说人话报错「jar 型 Spider 暂不支持」；
+   `.js` 型 spider（老约定全局函数）仍可试。见 §4.5。
 
 ## 2. Mac 本地开发环境
 
@@ -128,6 +133,21 @@ swift run TVBoxMac               # 或直接跑
 
 ### 4.4 明确未做（见 PLAN.md L2/L3）
 直播 IPTV、小程序框架、跨站聚合搜索、下载/缓存、登录类源
+
+### 4.5 jar 型 Spider（csp_ 源）macOS 无法运行 ✅ 已改为明确报错
+- **现象**（用户实测，commit `5981fb6` 的包）：点 csp_ 站点 →
+  「网络错误：不支持的URL [请求: csp_DouDouGuard?ac=detail&pg=1]」
+- **根因**：`csp_Xxx` 的 api 是 **spider 类名不是 URL**（TVBox 约定），旧代码把
+  type!=0 全走 CatVod 路径，拿类名拼 query 发请求
+- **生态现状**（用户实配统计）：1625 个 type3（jar spider）vs 44 个 type1（CatVod）；
+  4 个配置级 jar 实测全含 `classes.dex`（安卓实现）→ **macOS 没有安卓运行时，无法支持**
+- **已修（2026-09-17）**：
+  1. 路由：csp_ 前缀 / type 0/3 → Spider 路径（`Site.isSpiderSite`，TVBoxClient 分发）
+  2. `Site` 新增 `jar` 字段；`TVBoxClient.configure` 把配置级 `spider` 传给 SpiderClient
+  3. SpiderClient：候选 site.spider → site.jar → 配置级 spider → site.api（剥 `;md5;`）；
+     jar 魔数识别（PK/dex）→ `SpiderError.unsupportedJar` 说人话报错；.js 型照旧加载
+  4. HomeView 站点图标区分 spider 型（orange 蚂蚁图标）
+- **后续可做**：站点列表给 jar 型加"不支持"角标/过滤器；drpy2/py 型源单独评估
 
 ## 5. 关键坑（踩过的，别再踩）
 

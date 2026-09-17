@@ -12,8 +12,8 @@ struct HomeView: View {
                 SiteRow(site: site)
                     .tag(site)
                     .contextMenu {
-                        if site.type == 0 {
-                            Label("Spider 站点（JS 源）", systemImage: "ant")
+                        if site.isSpiderSite {
+                            Label("Spider 站点（jar/JS 源）", systemImage: "ant")
                         } else {
                             Label("CatVod 站点", systemImage: "server.rack")
                         }
@@ -40,9 +40,9 @@ struct SiteRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: site.type == 0 ? "ant" : "server.rack")
+            Image(systemName: site.isSpiderSite ? "ant" : "server.rack")
                 .font(.caption)
-                .foregroundStyle(site.type == 0 ? .orange : .blue)
+                .foregroundStyle(site.isSpiderSite ? .orange : .blue)
             VStack(alignment: .leading, spacing: 1) {
                 Text(site.name).lineLimit(1)
                 Text(site.api)

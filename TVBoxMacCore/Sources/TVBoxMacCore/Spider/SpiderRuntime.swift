@@ -17,6 +17,7 @@ public enum SpiderError: LocalizedError {
     case jsLoadFailed(String)
     case entryMissing(String)
     case jsException(String)
+    case unsupportedJar(String)
 
     public var errorDescription: String? {
         switch self {
@@ -24,6 +25,8 @@ public enum SpiderError: LocalizedError {
         case .jsLoadFailed(let s): return "spider JS 加载失败: \(s)"
         case .entryMissing(let s): return "spider 缺少入口函数: \(s)"
         case .jsException(let s): return "spider JS 异常: \(s)"
+        case .unsupportedJar(let s):
+            return "此源是 jar 型 Spider（安卓 dex 实现，api=\(s)），macOS 暂不支持。请改用 type=1 的 CatVod 源"
         }
     }
 }

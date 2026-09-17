@@ -11,13 +11,15 @@ public actor TVBoxClient {
         self.spider = spider ?? SpiderClient()
     }
 
-    /// 加载配置后同步 parses/header 到两个 client
+    /// 加载配置后同步 parses/header/spider 到两个 client
     public func configure(_ config: TVBoxConfig) async {
         await catVod.setParses(config.parses)
         await spider.setParses(config.parses)
         let h = HeaderParser.parse(config.header)
         await catVod.setGlobalHeader(h)
         await spider.setGlobalHeader(h)
+        // 配置级 spider 地址（jar/js），spider 站点用它找实现
+        await spider.setGlobalSpiderURL(config.spider)
     }
 
     public func allSites() -> [Site] {
@@ -34,9 +36,9 @@ public actor TVBoxClient {
 
     // MARK: - VodFetching 风格的分发（UI 直接用这些方法）
     private func client(for site: Site) -> any VodFetching {
-        // type==0 → spider, type==1 → catvod（与 TVBox 一致）
-        // 注意 SpiderClient 未实现 VodFetching（actor 隔离），这里用类型分发
-        if site.type == 0 {
+        // spider 站点：type 0/3，或 api 为 csp_ 前缀（TVBox 约定：api 是 spider 类名，不是 URL；
+        // 实现在 site.jar / 配置级 spider 字段指向的 jar/js 里）。其余走 CatVod。
+        if site.type == 0 || site.type == 3 || site.api.lowercased().hasPrefix("csp_") {
             return SpiderProxy(spider: spider, site: site)
         }
         return CatVodProxy(catVod: catVod, site: site)
