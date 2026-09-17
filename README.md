@@ -66,8 +66,8 @@ bash scripts/make-app-bundle.sh # 出 TVBoxMac.app + zip（ad-hoc 签名）
 ## 当前状态（2026-09-17）
 
 - ✅ 核心库 Linux (Swift 5.10.1) 编译 + 50 测试全绿；最后全绿 macOS CI：run `35232665274`（`0e28385`）
-- ⛔ **HEAD 红**：卡在 IDN 中文域名站点（`www.饭太硬.net`）请求被 URLSession 拒绝，
-  修复方案与验证步骤见 **[HANDOFF.md](HANDOFF.md) §4.1**（含 CI 工具链裁剪坑清单）
+- ✅ **IDN 中文域名已修复**：纯 Swift Punycode（RFC 3492，`Punycode.swift`）兜底 + ICU 优先，
+  与 Python stdlib 对拍 22/22；CI 与真机实测确认中
 - 使用：解压 zip → `xattr -d com.apple.quarantine TVBoxMac.app` → 设置导入
   `https://www.iyouhun.com/tv/dc` → 选站点浏览/播放
 
