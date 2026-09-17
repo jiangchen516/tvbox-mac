@@ -127,7 +127,8 @@ final class CatVodTests: XCTestCase {
         XCTAssertEqual(resolved, "https://cdn.example.com/x.m3u8")
     }
 
-    func testNonZeroCodeThrows() async throws {
+    // 真实源实测：code=1 + list 是成功（「数据列表」）；code 只在缺 list 时间接体现为错误
+    func testMissingListWithCodeOneThrows() async throws {
         let mock = MockHTTP()
         mock.cases.append(.init(match: { _ in true }, status: 200,
                                 body: #"{"code": 1, "msg": "token 过期"}"#))
@@ -137,8 +138,35 @@ final class CatVodTests: XCTestCase {
             _ = try await client.browse(site: site, category: nil, page: 1)
             XCTFail("应当抛错")
         } catch let e as HTTPClientError {
-            if case .httpStatus(let code, _) = e { XCTAssertEqual(code, 1) } else { XCTFail("错误类型不对") }
+            if case .jsonParse = e {} else { XCTFail("错误类型应为 jsonParse（响应缺少 list），实际: \(e)") }
         }
+    }
+
+    // 真实源实测：部分源 page/pagecount/limit/total 返回字符串，code=1 为成功
+    func testStringEnvelopeFieldsDecode() async throws {
+        let mock = MockHTTP()
+        mock.cases.append(.init(match: { _ in true }, status: 200,
+                                body: #"{"code":1,"msg":"数据列表","page":"1","pagecount":"7181","limit":"20","total":"143602","list":[{"vod_id":154956,"vod_name":"寄生之心"}]}"#))
+        let client = makeClient(mock)
+        let site = Site(key: "s", name: "s", api: "https://a.com/vod", type: 1)
+        let page = try await client.browse(site: site, category: nil, page: 1)
+        XCTAssertEqual(page.page, 1)
+        XCTAssertEqual(page.pagecount, 7181)
+        XCTAssertEqual(page.total, 143602)
+        XCTAssertEqual(page.list.first?.vod_name, "寄生之心")
+    }
+
+    func testStripLocalProxy() {
+        // TVBox 本机代理约定：还原真实地址
+        let proxied = URL(string: "http://127.0.0.1:10079/p/0/proxy/https://ikunzyapi.com/api.php/provide/vod/?ac=detail&pg=1")!
+        XCTAssertEqual(HTTPDefaults.stripLocalProxy(proxied).absoluteString,
+                       "https://ikunzyapi.com/api.php/provide/vod/?ac=detail&pg=1")
+        // 非 localhost 不动
+        let direct = URL(string: "https://suoniapi.com/api.php/provide/vod/from/snm3u8/?ac=detail&pg=1")!
+        XCTAssertEqual(HTTPDefaults.stripLocalProxy(direct), direct)
+        // localhost 但无 proxy 路径，不动
+        let other = URL(string: "http://localhost:9978/file/x.txt")!
+        XCTAssertEqual(HTTPDefaults.stripLocalProxy(other), other)
     }
 
     func testMissingListThrows() async throws {

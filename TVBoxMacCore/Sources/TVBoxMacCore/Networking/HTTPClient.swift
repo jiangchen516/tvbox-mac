@@ -45,6 +45,17 @@ public enum HTTPClientError: LocalizedError {
 public enum HTTPDefaults {
     public static let defaultUA = "okhttp/3.10.0"
     public static let timeout: TimeInterval = 15
+
+    /// TVBox 本机代理地址还原：http://127.0.0.1:<port>/p/<n>/proxy/<真实URL> → <真实URL>
+    /// （TVBox 配置里站点 api 走 app 内置本机代理；原生客户端无需代理，
+    /// 直接取真实地址等价。仅对 127.0.0.1/localhost 生效）
+    public static func stripLocalProxy(_ url: URL) -> URL {
+        guard let host = url.host, host == "127.0.0.1" || host == "localhost" else { return url }
+        let s = url.absoluteString
+        guard let r = s.range(of: "/p/[0-9]+/proxy/", options: .regularExpression) else { return url }
+        let real = String(s[r.upperBound...])
+        return URL(string: real) ?? url
+    }
 }
 
 public actor HttpClient: HTTPFetching {
@@ -60,8 +71,9 @@ public actor HttpClient: HTTPFetching {
     }
 
     public func get(_ url: URL, headers: [String: String]? = nil) async throws -> (data: Data, response: HTTPResponse) {
-        // 中文域名（IDN）→ Punycode：URLSession 拒绝非 ASCII host（"不支持的URL"）
-        var request = URLRequest(url: IDNA.url(url))
+        // 本机代理还原（TVBox /p/n/proxy/ 约定）+ 中文域名（IDN）→ Punycode：
+        // URLSession 拒绝非 ASCII host（"不支持的URL"）
+        var request = URLRequest(url: IDNA.url(HTTPDefaults.stripLocalProxy(url)))
         request.httpMethod = "GET"
         request.timeoutInterval = HTTPDefaults.timeout
         for (k, v) in (headers ?? [:]) {
@@ -71,7 +83,7 @@ public actor HttpClient: HTTPFetching {
     }
 
     public func post(_ url: URL, body: Data, headers: [String: String]? = nil) async throws -> (data: Data, response: HTTPResponse) {
-        var request = URLRequest(url: IDNA.url(url))
+        var request = URLRequest(url: IDNA.url(HTTPDefaults.stripLocalProxy(url)))
         request.httpMethod = "POST"
         request.httpBody = body
         request.timeoutInterval = HTTPDefaults.timeout

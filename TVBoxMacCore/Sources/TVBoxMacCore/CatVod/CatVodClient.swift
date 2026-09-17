@@ -41,32 +41,42 @@ public actor CatVodClient {
         return h
     }
 
-    /// 请求 catvod 并解码 VodPage；code!=0 或无 list 抛错
+    /// 请求 catvod 并解码 VodPage
+    /// 注意：信封字段宽容解码（部分源 page/pagecount/limit 返回字符串 "1"）；
+    /// code 不做失败判定（部分源 code=1 为成功「数据列表」，code=0 也常见），
+    /// 只认 list 有无；解码失败带响应片段，方便定位（HTML 反爬页/结构不符）
     private func fetchPage(_ url: String, headers: [String: String]) async throws -> VodPage {
         guard let u = URL(string: url) else { throw HTTPClientError.badURL(url) }
         let (data, _) = try await http.get(u, headers: headers)
-        struct CatVodResponse: Decodable {
-            let code: Int?
+        struct CatVodEnvelope: Decodable {
+            let code: JSONValue?
             let list: [Vod]?
-            let page: Int?
-            let pagecount: Int?
-            let limit: Int?
-            let total: Int?
+            let page: JSONValue?
+            let pagecount: JSONValue?
+            let limit: JSONValue?
+            let total: JSONValue?
         }
-        guard let resp = try? JSONDecoder().decode(CatVodResponse.self, from: data) else {
-            throw HTTPClientError.jsonParse(url)
+        guard let env = try? JSONDecoder().decode(CatVodEnvelope.self, from: data) else {
+            throw HTTPClientError.jsonParse("\(url) —— \(Self.describe(data))")
         }
-        if let code = resp.code, code != 0 {
-            throw HTTPClientError.httpStatus(code, "catvod 返回 code=\(code): \(url)")
+        guard let list = env.list else {
+            throw HTTPClientError.jsonParse("响应缺少 list: \(url) —— \(Self.describe(data))")
         }
-        guard let list = resp.list else {
-            throw HTTPClientError.jsonParse("响应缺少 list: \(url)")
-        }
-        return VodPage(page: resp.page ?? 1,
-                       pagecount: resp.pagecount ?? 0,
-                       limit: resp.limit ?? 20,
-                       total: resp.total ?? list.count,
+        return VodPage(page: LenientJSON.int(env.page) ?? 1,
+                       pagecount: LenientJSON.int(env.pagecount) ?? 0,
+                       limit: LenientJSON.int(env.limit) ?? 20,
+                       total: LenientJSON.int(env.total) ?? list.count,
                        list: list)
+    }
+
+    /// 响应片段（说人话：拿到的是什么一眼可辨）
+    static func describe(_ data: Data) -> String {
+        guard !data.isEmpty else { return "服务器返回了空内容（0 字节），可能地址不对或被反爬" }
+        let head = String(data: data.prefix(150), encoding: .utf8) ?? "(无法按文本读取，可能是二进制)"
+        if head.lowercased().contains("<html") || head.lowercased().contains("<!doctype") {
+            return "服务器返回的是 HTML 网页（大概率反爬拦截页）。响应开头: \(head.prefix(80))"
+        }
+        return "响应开头: \(head.prefix(80).replacingOccurrences(of: "\n", with: " "))"
     }
 
     // MARK: - VodFetching
