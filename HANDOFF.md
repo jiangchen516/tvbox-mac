@@ -39,23 +39,11 @@ IDNA 修好才有完整收益。
 
 ### 2.2 搭建步骤
 ```bash
-# 1. clone（PAT 在服务器 .env 里，Mac 上用自己的账号凭据即可）
 git clone https://github.com/jiangchen516/tvbox-mac.git
 cd tvbox-mac
-
-# 2. 验证环境
-swift --version          # 需 5.9+
-
-# 3. 编译 + 测试（逻辑库，全部 mock 不联网）
-swift build -c release
-swift test               # 期望 50 个用例；IDNATests 4 个若在你 Mac 也失败 → 见 §4.1
-
-# 4. 直接跑
-swift run TVBoxMac
-
-# 5. 打 .app（含 ad-hoc 签名 + zip）
-bash scripts/make-app-bundle.sh
-open TVBoxMac.app
+bash scripts/setup.sh            # 环境自检 + 编译 + 打 .app（一键）
+bash scripts/setup.sh --test     # 加跑单测（期望 50 用例；IDNATests 若失败 → §4.1）
+swift run TVBoxMac               # 或直接跑
 ```
 
 ### 2.3 本地构建排错
