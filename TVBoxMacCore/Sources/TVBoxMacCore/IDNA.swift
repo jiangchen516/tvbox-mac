@@ -42,8 +42,13 @@ public enum IDNA {
     public static func idnHost(_ host: String) -> String {
         guard host.unicodeScalars.contains(where: { $0.value >= 0x80 }) else { return host }
         #if os(macOS)
-        // Apple 官方 IDNA 转换（NSString transform API，等价 CFStringTransform IDNA）
-        return host.applyingTransform(.idnaConvert, reverse: false) ?? host
+        // Apple ICU 的 IDNA 转换（iOS/macOS 标准做法：StringTransform "IDNA"）。
+        // 注意：CFStringTransform 的 kCFStringIDNAConvertTransform 常量未导出到 Swift，
+        // StringTransform 也没有 .idnaConvert 成员，rawValue: "IDNA" 是公开 API。
+        if let tf = StringTransform(rawValue: "IDNA") {
+            return host.applyingTransform(tf, reverse: false) ?? host
+        }
+        return host
         #else
         // Linux：passthrough（仅编译/单测用，真实 app 跑在 macOS）
         return host
