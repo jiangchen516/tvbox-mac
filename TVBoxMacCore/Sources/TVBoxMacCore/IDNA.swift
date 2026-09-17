@@ -45,10 +45,8 @@ public enum IDNA {
         // Apple ICU 的 IDNA 转换（iOS/macOS 标准做法：StringTransform "IDNA"）。
         // 注意：CFStringTransform 的 kCFStringIDNAConvertTransform 常量未导出到 Swift，
         // StringTransform 也没有 .idnaConvert 成员，rawValue: "IDNA" 是公开 API。
-        if let tf = StringTransform(rawValue: "IDNA") {
-            return host.applyingTransform(tf, reverse: false) ?? host
-        }
-        return host
+        let tf = StringTransform(rawValue: "IDNA", forward: true)
+        return host.applyingTransform(tf, reverse: false) ?? host
         #else
         // Linux：passthrough（仅编译/单测用，真实 app 跑在 macOS）
         return host
