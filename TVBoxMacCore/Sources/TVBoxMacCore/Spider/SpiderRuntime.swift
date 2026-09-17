@@ -128,7 +128,7 @@ public actor SpiderRuntime {
                 if let ua, !ua.isEmpty { h["User-Agent"] = ua }
                 for (k, v) in h { req.setValue(v, forHTTPHeaderField: k) }
                 let sem = DispatchSemaphore(value: 0)
-                var result: (String, Int) = ("", 0)
+                var result = (content: "", status: 0)
                 let task = URLSession.shared.dataTask(with: req) { data, resp, _ in
                     if let d = data { result.content = String(data: d, encoding: .utf8) ?? "" }
                     result.status = (resp as? HTTPURLResponse)?.statusCode ?? 0
@@ -140,8 +140,8 @@ public actor SpiderRuntime {
             },
             cacheDir: cacheDir
         )
-        let bridgeValue = ctx.object(for: bridge)
-        ctx.setObject(bridgeValue, forKeyedSubscript: "TVBoxBridge" as NSString)
+        // 把 Swift 对象暴露给 JS（setObject 自动转换）
+        ctx.setObject(bridge, forKeyedSubscript: "TVBoxBridge" as NSString)
 
         let bootstrap = """
         var log = function(m){ TVBoxBridge.log(m); };
@@ -211,7 +211,7 @@ public actor SpiderRuntime {
 
     private func callEntry(_ name: String, args: [Any]) throws -> String {
         guard let ctx = context, loaded else { throw SpiderError.jsLoadFailed("spider 未加载") }
-        guard let fn = ctx.objectForFunction(named: name) else {
+        guard let fn = ctx[name] as? JSValue, fn.isFunction else {
             throw SpiderError.entryMissing(name)
         }
         let ret = fn.call(withArguments: args)

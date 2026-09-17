@@ -2,6 +2,7 @@
 // 非 macOS 平台退化为空 stub，保证 Linux CI 也能过编译。
 #if canImport(AVFoundation)
 import AVFoundation
+import CoreMedia
 import Combine
 
 @MainActor
@@ -43,18 +44,19 @@ public final class PlayerController: ObservableObject {
         ensureObservers()
         var opts: [String: Any] = [:]
         if !headers.isEmpty {
-            opts[AVURLAssetHTTPHeaderFieldKey] = headers
+            opts[AVURLAssetHTTPHeaderFieldsKey] = headers
         }
         let asset = AVURLAsset(url: url, options: opts)
         player.replaceCurrentItem(with: AVPlayerItem(asset: asset))
         // 断点续播
-        if let key = positionKey,
-           let pos = UserDefaults.standard.double(forKey: "tvboxpos.\(key)"), pos > 5 {
-            let seekPos = pos
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
-                guard let self else { return }
-                self.currentTime = seekPos
-                self.player.seek(to: CMTime(seconds: seekPos, preferredTimescale: 600))
+        if let key = positionKey {
+            let pos = UserDefaults.standard.double(forKey: "tvboxpos.\(key)")
+            if pos > 5 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+                    guard let self else { return }
+                    self.currentTime = pos
+                    self.player.seek(to: CMTime(seconds: pos, preferredTimescale: 600))
+                }
             }
         }
         player.play()
