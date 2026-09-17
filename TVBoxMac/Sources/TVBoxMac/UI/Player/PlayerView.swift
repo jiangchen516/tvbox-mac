@@ -3,9 +3,26 @@ import SwiftUI
 import TVBoxMacCore
 #if canImport(AVKit)
 import AVKit
-#endif
+import SwiftUI
 
-#if canImport(AVKit)
+/// 直接包 AVKit 的 AppKit 视图 AVPlayerView（ObjC），
+/// 绕开 VideoPlayer 背后的 _AVKit_SwiftUI 框架——实测该框架的 Swift 泛型元数据
+/// 在「用 27.0 SDK 编译、跑在 macOS 26.6.2」的组合下 initClassMetadata 直接 abort
+struct PlayerVideoView: NSViewRepresentable {
+    let player: AVPlayer
+
+    func makeNSView(context: Context) -> AVPlayerView {
+        let v = AVPlayerView()
+        v.player = player
+        v.controlsStyle = .none   // 控制条用我们自己的
+        return v
+    }
+
+    func updateNSView(_ nsView: AVPlayerView, context: Context) {
+        if nsView.player !== player { nsView.player = player }
+    }
+}
+
 struct PlayerView: View {
     @EnvironmentObject var appState: AppState
     @Environment(\.dismiss) private var dismiss
@@ -68,7 +85,7 @@ struct PlayerView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let url = playUrl {
-            VideoPlayer(player: controller.player)
+            PlayerVideoView(player: controller.player)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .onTapGesture { showControls.toggle() }
                 .overlay(alignment: .bottom) {
