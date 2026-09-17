@@ -11,6 +11,21 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(vod.playGroups, ["线路1", "线路2", "线路3"])
     }
 
+    // 真实源实测（虎牙资源站）：play_from 用 $$$ 分组、组内集用 title$url（单美元符）
+    func testPlayGroupsAndEpisodesDollarConvention() {
+        let vod = Vod(vod_id: 1, vod_name: "t",
+                      vod_play_from: "hyyun$$$hym3u8",
+                      vod_play_url: "第1集$https://hd/play/a#第2集$https://hd/play/b$$$第1集$https://hd/play/a/index.m3u8#第2集$https://hd/play/b/index.m3u8")
+        XCTAssertEqual(vod.playGroups, ["hyyun", "hym3u8"], "play_from 应按 $$$ 拆组")
+        let direct = vod.episodes(group: "hym3u8")
+        XCTAssertEqual(direct.map(\.url), ["https://hd/play/a/index.m3u8", "https://hd/play/b/index.m3u8"])
+        XCTAssertEqual(direct[0].title, "第1集")
+        XCTAssertTrue(direct[0].isDirectMedia)
+        let web = vod.episodes(group: "hyyun")
+        XCTAssertEqual(web[0].url, "https://hd/play/a")
+        XCTAssertFalse(web[0].isDirectMedia, "网页播放页不是直连媒体")
+    }
+
     func testEpisodesSingleGroup() {
         let vod = Vod(vod_id: 1, vod_name: "t",
                       vod_play_from: "直连",

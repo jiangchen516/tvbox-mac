@@ -434,14 +434,22 @@ public struct Episode: Codable, Sendable, Identifiable {
 }
 
 public extension Vod {
-    /// 播放组名列表（vod_play_from 按 # 拆）
+    /// 播放组名列表
+    /// 真实源实测：vod_play_from 用 $$$ 分组（"hyyun$$$hym3u8"）；旧格式也可能用 #，
+    /// 所以 $$$ 优先、# 兜底（旧注释写按 # 拆是错的，会导致组名错位、永远选中第一组）
     var playGroups: [String] {
         guard let from = vod_play_from, !from.isEmpty else { return [] }
+        if from.contains("$$$") {
+            return from.components(separatedBy: "$$$")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+        }
         return from.split(separator: "#", omittingEmptySubsequences: true).map(String.init)
     }
 
     /// 取指定播放组的剧集列表
-    /// vod_play_url: 组间 $$$，组内集间 #，每集 "title|url"（title 可空 → "第N集"）
+    /// vod_play_url: 组间 $$$，组内集间 #，每集 "title|url" 或 "title$url"
+    /// （实测真实源两种约定都有：虎牙用 $，苹果CMS 常用 |；title 可空 → "第N集"）
     func episodes(group: String) -> [Episode] {
         guard let raw = vod_play_url, !raw.isEmpty else { return [] }
         let decoded = raw.removingPercentEncoding ?? raw
@@ -451,12 +459,26 @@ public extension Vod {
         let items = groups[groupIdx].components(separatedBy: "#")
         var result: [Episode] = []
         for item in items {
-            let parts = item.components(separatedBy: "|")
-            guard let url = parts.last?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !url.isEmpty else { continue }
-            let t = parts.count >= 2 ? parts[0].trimmingCharacters(in: .whitespacesAndNewlines) : ""
+            var rawTitle = ""
+            var url = item
+            if item.contains("|") {
+                // "title|url"：url 取最后一段（兼容畸形多段数据）
+                let parts = item.components(separatedBy: "|")
+                url = parts.last ?? item
+                rawTitle = parts.first ?? ""
+            } else if let dollarIdx = item.firstIndex(of: "$") {
+                // 组内 $$$ 已拆掉，单个 $ 是 title-url 分隔符（"title$url"）
+                let after = String(item[item.index(after: dollarIdx)...])
+                if after.lowercased().hasPrefix("http") {
+                    rawTitle = String(item[..<dollarIdx])
+                    url = after
+                }
+            }
+            let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.lowercased().hasPrefix("http") else { continue }
+            let t = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
             let title = t.isEmpty ? "第\(result.count + 1)集" : t
-            result.append(Episode(title: title, url: url, group: group, index: result.count))
+            result.append(Episode(title: title, url: trimmed, group: group, index: result.count))
         }
         return result
     }
