@@ -13,6 +13,7 @@ xcuserdata/
 
 # App bundles (CI 产物，本地手工构建产物不入库)
 *.app
+dist/
 
 # Env / secrets
 .env
