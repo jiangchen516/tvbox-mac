@@ -211,8 +211,10 @@ public actor SpiderRuntime {
 
     private func callEntry(_ name: String, args: [Any]) throws -> String {
         guard let ctx = context, loaded else { throw SpiderError.jsLoadFailed("spider 未加载") }
-        // 从全局对象取入口函数（该工具链下 JSContext 的 subscript 不可见，避开下标写法）
-        guard let fn = ctx.globalObject?.objectForProperty(name) as? JSValue, fn.isFunction else {
+        // 从全局作用域取入口函数：直接求值标识符
+        // （该工具链 JSContext/JSValue 的 property 访问 API 不完整，避开下标/子成员写法）
+        ctx.exception = nil
+        guard let fn = ctx.evaluateScript(name), fn.isFunction else {
             throw SpiderError.entryMissing(name)
         }
         let ret = fn.call(withArguments: args)
