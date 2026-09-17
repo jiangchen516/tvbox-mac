@@ -13,6 +13,8 @@ struct PlayerView: View {
     let site: Site
     let vod: Vod
     let episode: Episode
+    // 详情页内嵌播放时传回调关闭（避免嵌套 sheet 在 macOS 上静默失败）
+    var onClose: (() -> Void)?
 
     @StateObject private var controller = PlayerController()
     @State private var resolving: Bool = true
@@ -41,7 +43,7 @@ struct PlayerView: View {
             HStack {
                 Button {
                     controller.stop()
-                    dismiss()
+                    if let onClose { onClose() } else { dismiss() }
                 } label: {
                     Label("返回", systemImage: "chevron.left")
                 }
@@ -170,15 +172,15 @@ struct PlayerView: View {
 #else
 // 非 AVKit 平台兜底视图（Linux CI 过编译用）
 struct PlayerView: View {
-    @Environment(\.dismiss) private var dismiss
     let site: Site
     let vod: Vod
     let episode: Episode
+    var onClose: (() -> Void)?
 
     var body: some View {
         VStack(spacing: 12) {
             Text("播放器不可用（当前平台无 AVKit）")
-            Button("返回") { dismiss() }
+            Button("返回") { onClose?() }
         }
         .frame(minWidth: 600, minHeight: 400)
     }

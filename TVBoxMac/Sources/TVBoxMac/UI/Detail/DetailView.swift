@@ -4,6 +4,7 @@ import TVBoxMacCore
 
 struct DetailView: View {
     @EnvironmentObject var appState: AppState
+    @Environment(\.dismiss) private var dismiss
     let site: Site
     let vod: Vod
 
@@ -15,19 +16,24 @@ struct DetailView: View {
     @State private var loadingDetail: Bool = true
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            if !currentGroup.isEmpty {
-                groupPicker
-                episodeGrid
+        ZStack {
+            VStack(spacing: 0) {
+                header
+                if !currentGroup.isEmpty {
+                    groupPicker
+                    episodeGrid
+                }
+            }
+            // 播放器内嵌覆盖（不走嵌套 sheet：macOS 上 sheet 里再开 sheet 常静默失败）
+            if let ep = playingEpisode {
+                PlayerView(site: site, vod: fullVod ?? vod, episode: ep,
+                           onClose: { playingEpisode = nil })
+                    .background(Color.black)
+                    .transition(.opacity)
             }
         }
         .onAppear { loadDetail() }
-        .sheet(item: $playingEpisode) { ep in
-            PlayerView(site: site, vod: fullVod ?? vod, episode: ep)
-        }
-        .frame(minWidth: 600)
-        .alert("播放地址解析失败", isPresented: .constant(false)) {}
+        .frame(width: 760, height: 620)   // 固定尺寸：macOS sheet 按内容撑，会占满父窗宽度
     }
 
     private var header: some View {
@@ -67,7 +73,17 @@ struct DetailView: View {
                               systemImage: isFavorite ? "heart.fill" : "heart")
                     }
                     .buttonStyle(.borderless)
-                    if isFavorite { Spacer() }
+                    Spacer()
+                    // 可见关闭按钮（Esc 之外的常规关闭方式）
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("关闭 (Esc)")
                 }
             }
             Spacer()
