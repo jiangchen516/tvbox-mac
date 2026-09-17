@@ -25,7 +25,12 @@
 2. 本机 CLT **不带 XCTest**（只带 Swift Testing 的 `Testing.framework`）→ `swift test`
    本机跑不了；**也不带 `SwiftUIMacros` 插件** → SwiftUI 应用层本机编不了
    （核心库 `swift build --target TVBoxMacCore` 不受影响）。
-   两者装完整版 Xcode 即解决（App Store → `sudo xcode-select -s`）。
+   **✅ 已解决（2026-09-17）**：装完整版 Xcode 27.0（App Store）+ `sudo xcodebuild
+   -license accept` 后，用 `export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`
+   （不用 sudo 切 xcode-select）即可本机全量构建 + 测试：**51/51 全绿**（含 4 个
+   IDNATests 与新增 Punycode 标准向量）。注意：Xcode 的 swift 在
+   `Toolchains/XcodeDefault.xctoolchain/usr/bin/swift`（`Developer/usr/bin/swift`
+   可能不存在），跑命令时直接用 xcodebuild/swift 或 DEVELOPER_DIR。
 3. **jar 型 Spider 是 TVBox 生态主流形态**（用户实配 1625 个 type3 vs 44 个 type1）：
    `csp_Xxx` 的 api 是**类名不是 URL**，实现在配置级 `spider` 字段指向的 **`.jar`（安卓
    dex）**里，macOS 无法运行（已实测 4 个 jar 全是 classes.dex）。已修：路由
