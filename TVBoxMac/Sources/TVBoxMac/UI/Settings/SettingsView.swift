@@ -15,81 +15,88 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("设置").font(.title2).bold()
 
-            // 导入配置
-            GroupBox("导入配置") {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("粘贴配置 URL（单配置 JSON 或 iyouhun 聚合列表均可）")
-                        .font(.callout).foregroundStyle(.secondary)
-                    HStack {
-                        TextField("https://…/config.json", text: $configURL)
-                            .textFieldStyle(.roundedBorder)
-                            .onSubmit { startImport() }
-                        Button("导入") { startImport() }
-                            .disabled(importing || configURL.isEmpty)
-                        Button("选择文件…") { pickFile() }
-                            .disabled(importing)
-                    }
-                    if importing {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                            Text("导入中…").foregroundStyle(.secondary)
-                        }
-                    }
-                    if let banner = appState.banner {
-                        Text(banner)
-                            .font(.caption)
-                            .foregroundStyle(banner.hasPrefix("导入失败") ? .red : .orange)
-                            .textSelection(.enabled)
-                    }
-                }
-                .padding(4)
-            }
-
-            // 已导入配置
-            GroupBox("已导入的配置") {
-                if appState.configs.isEmpty {
-                    Text("还没有配置").foregroundStyle(.secondary)
-                } else {
-                    VStack(spacing: 4) {
-                        ForEach(appState.configs) { entry in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    // 导入配置
+                    GroupBox("导入配置") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("粘贴配置 URL（单配置 JSON / 裸站点数组 / iyouhun 聚合列表均可）")
+                                .font(.callout).foregroundStyle(.secondary)
                             HStack {
-                                Toggle(isOn: Binding(
-                                    get: { entry.loaded.enabled },
-                                    set: { _ in
-                                        Task {
-                                            await appState.setConfigEnabled(
-                                                id: entry.id, enabled: !entry.loaded.enabled)
+                                TextField("https://…/config.json", text: $configURL)
+                                    .textFieldStyle(.roundedBorder)
+                                    .onSubmit { startImport() }
+                                Button("导入") { startImport() }
+                                    .disabled(importing || configURL.isEmpty)
+                                Button("选择文件…") { pickFile() }
+                                    .disabled(importing)
+                            }
+                            if importing {
+                                HStack(spacing: 8) {
+                                    ProgressView()
+                                    Text("导入中…").foregroundStyle(.secondary)
+                                }
+                            }
+                            if let banner = appState.banner {
+                                Text(banner)
+                                    .font(.caption)
+                                    .foregroundStyle(banner.hasPrefix("导入失败") ? .red : .orange)
+                                    .textSelection(.enabled)
+                            }
+                        }
+                        .padding(4)
+                    }
+
+                    // 已导入配置
+                    GroupBox("已导入的配置") {
+                        if appState.configs.isEmpty {
+                            Text("还没有配置").foregroundStyle(.secondary)
+                        } else {
+                            VStack(spacing: 4) {
+                                ForEach(appState.configs) { entry in
+                                    HStack {
+                                        Toggle(isOn: Binding(
+                                            get: { entry.loaded.enabled },
+                                            set: { _ in
+                                                Task {
+                                                    await appState.setConfigEnabled(
+                                                        id: entry.id, enabled: !entry.loaded.enabled)
+                                                }
+                                            }
+                                        )) {
+                                            VStack(alignment: .leading, spacing: 1) {
+                                                Text(entry.loaded.name).lineLimit(1)
+                                                Text(entry.loaded.url)
+                                                    .font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+                                            }
                                         }
-                                    }
-                                )) {
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text(entry.loaded.name).lineLimit(1)
-                                        Text(entry.loaded.url)
-                                            .font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+                                        Button(role: .destructive) {
+                                            Task { await appState.removeConfig(id: entry.id) }
+                                        } label: {
+                                            Image(systemName: "trash")
+                                        }
+                                        .buttonStyle(.borderless)
                                     }
                                 }
-                                Button(role: .destructive) {
-                                    Task { await appState.removeConfig(id: entry.id) }
-                                } label: {
-                                    Image(systemName: "trash")
-                                }
-                                .buttonStyle(.borderless)
                             }
                         }
                     }
                 }
             }
 
-            // 历史
+            Spacer(minLength: 0)
+
+            // 历史 + 关闭（始终可见，不随列表滚动）
             HStack {
                 Button("清空历史记录") {
                     Task { await appState.historyStore.clearHistory() }
                 }
                 .buttonStyle(.bordered)
                 .tint(.red)
+                Spacer()
+                Button("关闭") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
             }
-
-            Spacer()
 
             GroupBox("关于") {
                 VStack(alignment: .leading, spacing: 4) {
@@ -100,12 +107,9 @@ struct SettingsView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
-
-            Button("关闭") { dismiss() }
-                .keyboardShortcut(.defaultAction)
         }
         .padding(20)
-        .frame(width: 560)
+        .frame(width: 560, height: 620)
     }
 
     private func startImport() {

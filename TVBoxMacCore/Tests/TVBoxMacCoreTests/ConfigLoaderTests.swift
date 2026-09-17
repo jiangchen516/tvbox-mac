@@ -35,6 +35,31 @@ final class ConfigLoaderTests: XCTestCase {
         }
     }
 
+    /// 裸站点数组格式（单仓/单文件源，无 {"sites":...} 外层）
+    func testParseBareSiteArray() throws {
+        let json = """
+        [
+          {"key":"fty","name":"饭太硬","api":"https://www.fty.net/vod","type":1,"searchable":1},
+          {"name":"某Spider站","api":"http://127.0.0.1:9999/spider","type":0}
+        ]
+        """
+        let config = try ConfigLoader.parseConfig(Data(json.utf8), sourceDesc: "test")
+        XCTAssertEqual(config.sites.count, 2)
+        XCTAssertEqual(config.sites[0].key, "fty")
+        XCTAssertEqual(config.sites[0].type, 1)
+        XCTAssertEqual(config.sites[1].type, 0)          // 缺省键的 spider 站
+        // 裸数组不带 parses/flags，应取默认空
+        XCTAssertTrue(config.parses.isEmpty)
+    }
+
+    /// 裸数组带前导空白也能正确识别
+    func testParseBareSiteArrayWithLeadingWhitespace() throws {
+        let json = "\n  \n  [{\"name\":\"X\",\"api\":\"https://x.tv\",\"type\":1}]"
+        let config = try ConfigLoader.parseConfig(Data(json.utf8), sourceDesc: "test")
+        XCTAssertEqual(config.sites.count, 1)
+        XCTAssertEqual(config.sites[0].name, "X")
+    }
+
     func testAggregateJsonShape() throws {
         // 聚合列表结构解析（不实际展开，展开需要网络）
         let url = fixtureURL("sample-aggregate", "json")
