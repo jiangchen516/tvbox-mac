@@ -169,6 +169,25 @@ final class CatVodTests: XCTestCase {
         XCTAssertEqual(HTTPDefaults.stripLocalProxy(other), other)
     }
 
+    // 真实源实测：t=分类名返回 0 条，t=type_id 正常；分类需经 ac=list 的 class 映射
+    func testCategoryNameMappedToTypeId() async throws {
+        let mock = MockHTTP()
+        mock.cases.append(.init(match: { $0.contains("ac=list") }, status: 200,
+                                body: #"{"code":1,"class":[{"type_id":1,"type_name":"电影"},{"type_id":2,"type_name":"电视剧"}]}"#))
+        mock.cases.append(.init(match: { $0.contains("ac=detail") }, status: 200,
+                                body: #"{"code":1,"page":"1","pagecount":"3","limit":"20","total":"2","list":[{"vod_id":9,"vod_name":"测试片"}]}"#))
+        let client = makeClient(mock)
+        let site = Site(key: "s", name: "s", api: "https://a.com/vod", type: 1)
+        let names = try await client.categories(site: site)
+        XCTAssertEqual(names.first, "电影")
+        let page = try await client.browse(site: site, category: "电影", page: 1)
+        XCTAssertEqual(page.list.first?.vod_name, "测试片")
+        // 请求应传 t=1（type_id）而非 t=电影
+        let detailReq = mock.requests.first { $0.contains("ac=detail") }
+        XCTAssertTrue(detailReq?.contains("t=1") ?? false, "应传 type_id，实际: \(detailReq ?? "?")")
+        XCTAssertFalse(detailReq?.contains("t=%E7%94%B5%E5%BD%B1") ?? true, "不应传分类名")
+    }
+
     func testMissingListThrows() async throws {
         let mock = MockHTTP()
         mock.cases.append(.init(match: { _ in true }, status: 200, body: #"{"code":0}"#))

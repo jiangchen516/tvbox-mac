@@ -4,6 +4,8 @@ import TVBoxMacCore
 
 @main
 struct TVBoxMacApp: App {
+    // 点窗口 x（关闭最后一个窗口）时直接退出 app
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var appState = AppState()
 
     var body: some Scene {
@@ -18,6 +20,12 @@ struct TVBoxMacApp: App {
     }
 }
 
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        true
+    }
+}
+
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
 
@@ -29,6 +37,7 @@ struct ContentView: View {
             if appState.hasConfig {
                 if let site = appState.selectedSite {
                     BrowseView(site: site)
+                        .id(site.id)   // 站点切换时重建视图，重置 @State（否则显示旧站点内容）
                 } else {
                     VStack(spacing: 12) {
                         Image(systemName: "play.rectangle.on.rectangle")

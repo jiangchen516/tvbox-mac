@@ -2,10 +2,10 @@
 import Foundation
 
 /// 实现 TVBox 主力源协议（苹果CMS v10 标准 API）：
-///   浏览: api + ?ac=detail&t=<分类>&pg=<页>
+///   浏览: api + ?ac=detail&t=<type_id>&pg=<页>（t 要 type_id 数字，不是分类名）
 ///   搜索: ...&wd=<关键词>&pg=<页>
 ///   详情: ...&ac=detail&ids=<vod_id>
-/// 响应: {"code":0,"page":1,"pagecount":N,"limit":20,"total":N,"list":[vod...]}
+/// 响应: {"code":1,"page":"1","pagecount":"N","limit":"20","total":"N","list":[vod...],"class":[...]}
 public actor CatVodClient {
     private let http: HTTPFetching
     private let parseEngine: ParseRuleEngine
@@ -13,6 +13,8 @@ public actor CatVodClient {
     public var parses: [ParseRule] = []
     public var globalHeader: [String: String] = [:]
     public var defaultUA: String = HTTPDefaults.defaultUA
+    // 分类缓存（按 site.id）：API 的 ac=list/class → (分类名列表, 分类名→type_id 映射)
+    private var categoryCache: [String: ([String], [String: Int])] = [:]
 
     public init(http: HTTPFetching = HttpClient(),
                 parseEngine: ParseRuleEngine? = nil,
@@ -81,14 +83,44 @@ public actor CatVodClient {
 
     // MARK: - VodFetching
     public func categories(site: Site) async throws -> [String] {
-        // CatVod 无独立分类端点，分类名来自配置
-        site.categories ?? [""]
+        if let (names, _) = categoryCache[site.id] { return names }
+        // CatVod 的 t= 参数要 type_id 而非分类名：优先从 API 的 ac=list → class 建映射
+        let url = buildApiUrl(site.api, query: "ac=list")
+        if let u = URL(string: url) {
+            if let (data, _) = try? await http.get(u, headers: requestHeaders(site)) {
+                if let obj = try? JSONSerialization.jsonObject(with: data),
+                   let dict = obj as? [String: Any],
+                   let cls = dict["class"] as? [[String: Any]] {
+                    var names: [String] = []
+                    var map: [String: Int] = [:]
+                    for item in cls {
+                        guard let name = (item["type_name"] as? String)?
+                            .trimmingCharacters(in: .whitespaces), !name.isEmpty else { continue }
+                        let id: Int?
+                        if let n = item["type_id"] as? NSNumber { id = n.intValue }
+                        else if let s = item["type_id"] as? String { id = Int(s) }
+                        else { id = nil }
+                        guard let id else { continue }
+                        if map[name] == nil { names.append(name) }
+                        map[name] = id
+                    }
+                    if !names.isEmpty {
+                        categoryCache[site.id] = (names, map)
+                        return names
+                    }
+                }
+            }
+        }
+        // API 取不到 class → 回退配置里的分类（此时 t= 只能传名字，部分源不认）
+        return site.categories ?? [""]
     }
 
     public func browse(site: Site, category: String?, page: Int) async throws -> VodPage {
         var query = "ac=detail"
         if let c = category?.trimmingCharacters(in: .whitespaces), !c.isEmpty {
-            query += "&t=\(c.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? c)"
+            // 分类名 → type_id（实测 t=分类名 返回 0 条，t=type_id 正常）
+            let t = categoryCache[site.id]?.1[c].map(String.init) ?? c
+            query += "&t=\(t.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? t)"
         }
         query += "&pg=\(page)"
         return try await fetchPage(buildApiUrl(site.api, query: query), headers: requestHeaders(site))
