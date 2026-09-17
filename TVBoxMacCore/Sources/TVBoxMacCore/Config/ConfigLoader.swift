@@ -29,26 +29,37 @@ public enum ConfigLoader {
     /// 1. 完整对象 {"sites":[...], "parses":[...], ...}
     /// 2. 裸站点数组 [{"name","api","type"},...]（单仓/单文件源）
     static func parseConfig(_ data: Data, sourceDesc: String) throws -> TVBoxConfig {
-        // 定位第一个非空白字节，判断顶层类型
-        let first = data.first { $0 != 0x20 && $0 != 0x09 && $0 != 0x0A && $0 != 0x0D }
+        // 去掉 UTF-8 BOM（部分源文件带 \xEF\xBB\xBF 前缀），再定位第一个非空白字节
+        let bytes = Array(data)
+        let start = (bytes.count >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF) ? 3 : 0
+        let payload = Data(bytes[start...])
+        let first = payload.first { $0 != 0x20 && $0 != 0x09 && $0 != 0x0A && $0 != 0x0D }
         switch first {
         case UInt8(ascii: "["):
-            let sites = try JSONDecoder().decode([Site].self, from: data)
+            let sites = try JSONDecoder().decode([Site].self, from: payload)
             guard !sites.isEmpty else {
                 throw ConfigLoaderError.noSites(sourceDesc)
             }
             return TVBoxConfig(sites: sites)
         case UInt8(ascii: "{"):
-            guard let config = try? JSONDecoder().decode(TVBoxConfig.self, from: data) else {
-                throw ConfigLoaderError.notJson(sourceDesc)
+            guard let config = try? JSONDecoder().decode(TVBoxConfig.self, from: payload) else {
+                throw ConfigLoaderError.notJson("\(sourceDesc) \(snippet(payload))")
             }
             guard !config.sites.isEmpty else {
                 throw ConfigLoaderError.noSites(sourceDesc)
             }
             return config
         default:
-            throw ConfigLoaderError.notJson(sourceDesc)
+            // 报错带上响应开头片段：源站可能返回 CF 防护页/HTML 等非 JSON 内容，
+            // 片段是远程调试的关键线索
+            throw ConfigLoaderError.notJson("\(sourceDesc) \(snippet(payload))")
         }
+    }
+
+    private static func snippet(_ data: Data, _ n: Int = 120) -> String {
+        let s = String(data: data.prefix(n), encoding: .utf8)
+            ?? "(二进制数据 \(data.count) 字节)"
+        return "[响应开头: \(s.replacingOccurrences(of: "\n", with: " ").replacingOccurrences(of: "\r", with: ""))]"
     }
 
     /// 加载单个配置（完整 JSON 或裸站点数组）

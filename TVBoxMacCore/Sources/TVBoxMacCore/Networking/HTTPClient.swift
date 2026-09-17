@@ -60,7 +60,8 @@ public actor HttpClient: HTTPFetching {
     }
 
     public func get(_ url: URL, headers: [String: String]? = nil) async throws -> (data: Data, response: HTTPResponse) {
-        var request = URLRequest(url: url)
+        // 中文域名（IDN）→ Punycode：URLSession 拒绝非 ASCII host（"不支持的URL"）
+        var request = URLRequest(url: IDNA.url(url))
         request.httpMethod = "GET"
         request.timeoutInterval = HTTPDefaults.timeout
         for (k, v) in (headers ?? [:]) {
@@ -70,7 +71,7 @@ public actor HttpClient: HTTPFetching {
     }
 
     public func post(_ url: URL, body: Data, headers: [String: String]? = nil) async throws -> (data: Data, response: HTTPResponse) {
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: IDNA.url(url))
         request.httpMethod = "POST"
         request.httpBody = body
         request.timeoutInterval = HTTPDefaults.timeout
@@ -115,7 +116,8 @@ public actor HttpClient: HTTPFetching {
         } catch let e as URLError where e.code == .timedOut {
             throw HTTPClientError.timeout(request.url?.absoluteString ?? "")
         } catch {
-            throw HTTPClientError.network(error.localizedDescription)
+            // 带上实际请求 URL：远程调试时能直接看出请求发到了哪（含 IDNA 转换结果）
+            throw HTTPClientError.network("\(error.localizedDescription) [请求: \(request.url?.absoluteString ?? "?")]")
         }
     }
 

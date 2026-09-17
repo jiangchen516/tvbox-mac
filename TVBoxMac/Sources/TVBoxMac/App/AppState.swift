@@ -85,4 +85,12 @@ final class AppState: ObservableObject {
         _ = try? await configStore.setEnabled(id: id, enabled: enabled)
         await bootstrap()
     }
+
+    /// 全部启用/禁用
+    func setAllConfigsEnabled(_ enabled: Bool) async {
+        for entry in configs {
+            _ = try? await configStore.setEnabled(id: entry.id, enabled: enabled)
+        }
+        await bootstrap()
+    }
 }

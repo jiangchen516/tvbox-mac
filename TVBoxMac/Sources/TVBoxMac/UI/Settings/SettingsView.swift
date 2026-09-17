@@ -52,6 +52,19 @@ struct SettingsView: View {
                         if appState.configs.isEmpty {
                             Text("还没有配置").foregroundStyle(.secondary)
                         } else {
+                            HStack(spacing: 12) {
+                                Text("\(appState.configs.count) 个")
+                                    .font(.caption).foregroundStyle(.secondary)
+                                Spacer()
+                                Button("全部启用") {
+                                    Task { await appState.setAllConfigsEnabled(true) }
+                                }
+                                .font(.caption)
+                                Button("全部禁用") {
+                                    Task { await appState.setAllConfigsEnabled(false) }
+                                }
+                                .font(.caption)
+                            }
                             VStack(spacing: 4) {
                                 ForEach(appState.configs) { entry in
                                     HStack {

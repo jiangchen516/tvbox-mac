@@ -121,7 +121,8 @@ public actor SpiderRuntime {
         let bridge = SpiderBridge(
             fetchImpl: { urlStr, headers, ua in
                 // 同步阻塞式网络（SpiderRuntime 在后台线程执行 JS 入口，阻塞可接受）
-                guard let url = URL(string: urlStr) else { return ("URL 无效: \(urlStr)", 0) }
+                // 中文域名先归一化（URLSession 拒绝非 ASCII host）
+                guard let url = URL(string: IDNA.urlString(urlStr)) else { return ("URL 无效: \(urlStr)", 0) }
                 var req = URLRequest(url: url)
                 req.timeoutInterval = 20
                 var h = headers ?? [:]
