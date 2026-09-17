@@ -37,6 +37,11 @@ public final class PlayerController: ObservableObject {
             if let d = self?.player.currentItem?.asset.duration, d.seconds.isFinite {
                 self?.duration = d.seconds
             }
+            // 播放失败时把 AVPlayer 的错误暴露给 UI（否则只有黑屏没提示）
+            if let err = self?.player.currentItem?.error,
+               self?.error != err.localizedDescription {
+                self?.error = err.localizedDescription
+            }
         }
     }
 

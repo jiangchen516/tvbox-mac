@@ -418,6 +418,13 @@ public struct Episode: Codable, Sendable, Identifiable {
 
     public var id: String { "\(group)#\(index)#\(url)" }
 
+    /// 直连媒体地址（AVPlayer 可直接播；网页播放页需要解析，播不了）
+    public var isDirectMedia: Bool {
+        let low = url.lowercased()
+        return low.contains(".m3u8") || low.contains(".mp4") || low.contains(".flv")
+            || low.contains(".ts") || low.contains(".mp3") || low.contains(".m4a")
+    }
+
     public init(title: String, url: String, group: String, index: Int) {
         self.title = title
         self.url = url

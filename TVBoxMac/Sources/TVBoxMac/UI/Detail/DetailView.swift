@@ -120,9 +120,13 @@ struct DetailView: View {
             let detail = (try? await appState.client.detail(site: site, vodId: vod.vod_id)) ?? vod
             fullVod = detail
             let groups = detail.playGroups
-            if let first = groups.first {
-                currentGroup = first
-                episodes = detail.episodes(group: first)
+            // 优先选直连媒体的播放组（网页播放页组 AVPlayer 播不了，只能直接播 m3u8/mp4 的组）
+            let mediaGroup = groups.first { g in
+                detail.episodes(group: g).first?.isDirectMedia == true
+            }
+            if let g = mediaGroup ?? groups.first {
+                currentGroup = g
+                episodes = detail.episodes(group: g)
             } else {
                 currentGroup = ""
                 episodes = []

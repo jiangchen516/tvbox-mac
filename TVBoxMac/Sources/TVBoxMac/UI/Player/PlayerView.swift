@@ -69,6 +69,16 @@ struct PlayerView: View {
             VideoPlayer(player: controller.player)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .onTapGesture { showControls.toggle() }
+                .overlay(alignment: .bottom) {
+                    // 播放失败（黑屏）时显示 AVPlayer 的错误
+                    if let err = controller.error {
+                        Text(err)
+                            .foregroundStyle(.red).font(.caption)
+                            .multilineTextAlignment(.center)
+                            .padding(8).frame(maxWidth: .infinity)
+                            .background(.black.opacity(0.6))
+                    }
+                }
         } else {
             Color.black.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
