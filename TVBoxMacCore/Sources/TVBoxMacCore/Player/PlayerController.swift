@@ -32,7 +32,9 @@ public final class PlayerController: ObservableObject {
             queue: .main
         ) { [weak self] time in
             self?.currentTime = time.seconds
-            if let d = self?.player.currentItem?.asset.duration, CMTimeIsValid(d), d.seconds.isFinite {
+            // d.seconds.isFinite 同时排除 invalid(NaN) 与 indefinite(inf)
+            // （不用 C 函数 CMTimeIsValid：部分工具链下该 C 符号导入异常）
+            if let d = self?.player.currentItem?.asset.duration, d.seconds.isFinite {
                 self?.duration = d.seconds
             }
         }
@@ -44,7 +46,9 @@ public final class PlayerController: ObservableObject {
         ensureObservers()
         var opts: [String: Any] = [:]
         if !headers.isEmpty {
-            opts[AVURLAssetHTTPHeaderFieldsKey] = headers
+            // 用字面量键：AVFoundation 的 option-key 常量值恒等于其名称，
+            // 绕开 C 常量在部分工具链下导入异常的问题
+            opts["AVURLAssetHTTPHeaderFieldKey"] = headers
         }
         let asset = AVURLAsset(url: url, options: opts)
         player.replaceCurrentItem(with: AVPlayerItem(asset: asset))
