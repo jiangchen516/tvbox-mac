@@ -23,6 +23,7 @@ public actor TVBoxClient {
         await spider.setGlobalHeader(h)
         // 配置级 spider 地址（jar/js），spider 站点用它找实现
         await spider.setGlobalSpiderURL(config.spider)
+        await managedAndroidSpider?.setGlobalSpiderURL(config.spider)
     }
 
     public func allSites() -> [Site] {

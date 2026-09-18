@@ -19,9 +19,14 @@ public enum ManagedAndroidSpiderError: LocalizedError, Sendable {
 
 public actor ManagedAndroidSpiderClient: VodFetching {
     private let transport: any AndroidDexBridgeTransport
+    private var globalSpiderURL: String?
 
     public init(transport: any AndroidDexBridgeTransport) {
         self.transport = transport
+    }
+
+    public func setGlobalSpiderURL(_ url: String?) {
+        globalSpiderURL = url
     }
 
     public func categories(site: Site) async throws -> [String] {
@@ -77,7 +82,11 @@ public actor ManagedAndroidSpiderClient: VodFetching {
         site: Site,
         arguments: [String: JSONValue] = [:]
     ) async throws -> Data {
-        let request = AndroidDexBridgeRequest(operation: operation, site: site, arguments: arguments)
+        var resolvedSite = site
+        if resolvedSite.jar == nil || resolvedSite.jar?.isEmpty == true {
+            resolvedSite.jar = globalSpiderURL
+        }
+        let request = AndroidDexBridgeRequest(operation: operation, site: resolvedSite, arguments: arguments)
         let response: AndroidDexBridgeResponse
         do {
             response = try await transport.send(request)

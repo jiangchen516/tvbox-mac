@@ -3,13 +3,19 @@ import XCTest
 
 private actor FakeDexTransport: AndroidDexBridgeTransport {
     let response: AndroidDexBridgeResponse
+    private(set) var lastSentRequest: AndroidDexBridgeRequest?
 
     init(response: AndroidDexBridgeResponse) {
         self.response = response
     }
 
     func send(_ request: AndroidDexBridgeRequest) async throws -> AndroidDexBridgeResponse {
+        lastSentRequest = request
         return response
+    }
+
+    func lastRequest() -> AndroidDexBridgeRequest? {
+        lastSentRequest
     }
 }
 
@@ -62,5 +68,20 @@ final class ManagedAndroidSpiderClientTests: XCTestCase {
             }
             XCTAssertEqual(message, "class not found")
         }
+    }
+
+    func testConfigLevelSpiderURLFillsMissingSiteJar() async throws {
+        let transport = FakeDexTransport(response: AndroidDexBridgeResponse(
+            id: "1", ok: true,
+            data: .object(["categories": .array([])])
+        ))
+        let client = ManagedAndroidSpiderClient(transport: transport)
+        await client.setGlobalSpiderURL("https://example.com/tvbox.jar")
+        let site = Site(name: "饭太硬", api: "csp_Test", type: 3)
+
+        _ = try await client.categories(site: site)
+
+        let request = await transport.lastRequest()
+        XCTAssertEqual(request?.site.jar, "https://example.com/tvbox.jar")
     }
 }
