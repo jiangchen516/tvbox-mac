@@ -33,6 +33,25 @@ public enum PlayerLog {
         rotateIfNeeded()
     }
 
+    /// Double → Int 安全转换：CMTime/KVC 取值可能是 infinite 或 NaN，
+    /// 直接 Int(x) 会触发 Swift runtime trap（实测崩溃：stop() → replaceCurrentItem(nil)
+    /// → timeControlStatus KVO → Int(player.currentTime().seconds) = Int(NaN)）
+    public static func safeInt(_ d: Double) -> Int {
+        guard d.isFinite else { return 0 }
+        return Int(d)
+    }
+
+    /// app 启动标记：记录可执行文件路径与构建时间——排查「跑的是哪份包」
+    public static func logAppLaunch() {
+        let exe = Bundle.main.executableURL
+        let built = (try? exe?.resourceValues(forKeys: [.contentModificationDateKey]))?
+            .contentModificationDate
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        let builtStr = built.map { fmt.string(from: $0) } ?? "未知"
+        append("=== TVBoxMac 启动 | 二进制构建于 \(builtStr) | \(exe?.path ?? "路径未知") ===")
+    }
+
     static func rotateIfNeeded() {
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
               let size = attrs[.size] as? Int64, size > 512_000,
@@ -52,7 +71,7 @@ public enum PlayerLog {
         let segBytes = (e.value(forKey: "segmentsDownloadedBytes") as? Double) ?? 0
         let reqs = (e.value(forKey: "numberOfMediaRequests") as? Int) ?? 0
         let stall = (e.value(forKey: "numberOfStalls") as? Int) ?? 0
-        return "uri=\(uri.prefix(110)) 码率=\(Int(bitrate / 1024))Kbps 分段=\(Int(segDur))s/\(Int(segBytes / 1024))KB 请求=\(reqs) 停顿=\(stall)"
+        return "uri=\(uri.prefix(110)) 码率=\(safeInt(bitrate / 1024))Kbps 分段=\(safeInt(segDur))s/\(safeInt(segBytes / 1024))KB 请求=\(reqs) 停顿=\(stall)"
     }
 
     /// 读 error log 最新一条（加载环节的具体错误）

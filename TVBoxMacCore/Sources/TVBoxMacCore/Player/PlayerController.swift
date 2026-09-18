@@ -76,7 +76,7 @@ public final class PlayerController: ObservableObject {
             }
         }
         tcObservation = player.observe(\.timeControlStatus, options: [.new]) { p, _ in
-            PlayerLog.append("timeControlStatus=\(p.timeControlStatus.rawValue) t=\(Int(p.currentTime().seconds))s")
+            PlayerLog.append("timeControlStatus=\(p.timeControlStatus.rawValue) t=\(PlayerLog.safeInt(p.currentTime().seconds))s")
         }
         logObservers.append(NotificationCenter.default.addObserver(
             forName: .AVPlayerItemNewAccessLogEntry, object: nil, queue: .main
@@ -108,7 +108,7 @@ public final class PlayerController: ObservableObject {
                 }
                 s.isBuffering = !item.isPlaybackLikelyToKeepUp
                 if s.lastBufferingState != s.isBuffering {
-                    PlayerLog.append("缓冲状态→\(s.isBuffering ? "缓冲中" : "稳定") 已缓冲=\(Int(s.bufferedTime))s t=\(Int(s.currentTime))s")
+                    PlayerLog.append("缓冲状态→\(s.isBuffering ? "缓冲中" : "稳定") 已缓冲=\(PlayerLog.safeInt(s.bufferedTime))s t=\(PlayerLog.safeInt(s.currentTime))s")
                     s.lastBufferingState = s.isBuffering
                 }
                 // 网速：AVPlayerItemAccessLog 的实测吞吐（bps），限频 5s 一次（降低对加载管线的干扰）
@@ -126,7 +126,7 @@ public final class PlayerController: ObservableObject {
                 s.stallCount += 1
                 if s.stallCount >= 6 && s.isPlaying {
                     s.stallCount = 0
-                    PlayerLog.append("看门狗：停顿 3s，轻推 play() t=\(Int(s.currentTime))s")
+                    PlayerLog.append("看门狗：停顿 3s，轻推 play() t=\(PlayerLog.safeInt(s.currentTime))s")
                     s.player.play()
                 }
             } else {
@@ -169,8 +169,8 @@ public final class PlayerController: ObservableObject {
         // 断点续播
         if let key = positionKey {
             let pos = UserDefaults.standard.double(forKey: "tvboxpos.\(key)")
-            if pos > 5 {
-                PlayerLog.append("续播 seek 到 \(Int(pos))s（0.8s 后）")
+            if pos > 5 && pos.isFinite {
+                PlayerLog.append("续播 seek 到 \(PlayerLog.safeInt(pos))s（0.8s 后）")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
                     guard let self else { return }
                     self.currentTime = pos
@@ -226,7 +226,7 @@ public final class PlayerController: ObservableObject {
     }
 
     public func stop() {
-        PlayerLog.append("⏹ stop t=\(Int(currentTime))s")
+        PlayerLog.append("⏹ stop t=\(PlayerLog.safeInt(currentTime))s")
         saveTask?.cancel()
         savePosition()
         player.pause()

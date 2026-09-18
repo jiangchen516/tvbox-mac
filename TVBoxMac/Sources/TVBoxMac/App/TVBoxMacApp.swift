@@ -73,6 +73,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
     }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // 启动标记：日志第一行记录二进制路径/构建时间，便于确认跑的是哪份包
+        PlayerLog.logAppLaunch()
+    }
 }
 
 struct ContentView: View {
