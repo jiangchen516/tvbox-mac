@@ -10,7 +10,7 @@ final class AppState: ObservableObject {
     @Published var showSettings: Bool = false
     @Published var banner: String?   // 一次性提示（加载 warning 等）
 
-    let client = TVBoxClient()
+    let client: TVBoxClient
     let configStore = ConfigStore()
     let historyStore = HistoryStore()
 
@@ -21,9 +21,39 @@ final class AppState: ObservableObject {
     }
 
     init() {
+        client = Self.makeClient()
         Task {
             await bootstrap()
         }
+    }
+
+    private static func makeClient() -> TVBoxClient {
+        guard let bridgeAPK = Bundle.main.url(
+                  forResource: "AndroidDexBridge-release",
+                  withExtension: "apk"
+              ) else {
+            return TVBoxClient()
+        }
+
+        let sdkRoot = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Android/sdk", isDirectory: true)
+        let supportRoot = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        )[0].appendingPathComponent("TVBoxMac/managed-android-runtime", isDirectory: true)
+        let controller = ManagedAndroidRuntimeController(
+            sdkRoot: sdkRoot,
+            avdName: "TVBoxMac_Runtime",
+            avdHome: supportRoot.appendingPathComponent("avd", isDirectory: true),
+            userHome: supportRoot.appendingPathComponent("home", isDirectory: true)
+        )
+        let runtime = ManagedAndroidSpiderRuntime(
+            controller: controller,
+            bridgeAPK: bridgeAPK
+        )
+        return TVBoxClient(
+            managedAndroidSpider: ManagedAndroidSpiderClient(transport: runtime)
+        )
     }
 
     func bootstrap() async {
