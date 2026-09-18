@@ -123,7 +123,7 @@ struct BrowseView: View {
         do {
             // 首次加载先取分类（CatVod 的 t= 需要 type_id，分类名需经 API 的 class 映射）
             if categories.isEmpty {
-                categories = (try? await appState.client.categories(site: site)) ?? []
+                categories = try await appState.client.categories(site: site)
                 if currentCategory.isEmpty, let first = categories.first, !first.isEmpty {
                     currentCategory = first
                     return   // 分类选择已触发 task 重载，跳过本次空分类查询（避免全量列表闪一下又清空）

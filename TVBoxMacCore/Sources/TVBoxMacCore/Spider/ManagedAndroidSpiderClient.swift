@@ -21,6 +21,7 @@ public actor ManagedAndroidSpiderClient: VodFetching {
     private let transport: any AndroidDexBridgeTransport
     private var globalSpiderURL: String?
     private var categoryIDs: [String: [String: String]] = [:]
+    private var categoryNames: [String: [String]] = [:]
 
     public init(transport: any AndroidDexBridgeTransport) {
         self.transport = transport
@@ -31,13 +32,18 @@ public actor ManagedAndroidSpiderClient: VodFetching {
     }
 
     public func categories(site: Site) async throws -> [String] {
+        if let names = categoryNames[site.id] {
+            return names
+        }
         let data = try await call(operation: "categories", site: site)
         let response = try decodeCategoryResponse(from: data)
         categoryIDs[site.id] = response.ids
+        categoryNames[site.id] = response.names
         return response.names
     }
 
     public func browse(site: Site, category: String?, page: Int) async throws -> VodPage {
+                _ = try await categories(site: site)
                 let displayCategory = category ?? ""
                 let resolvedCategory = categoryIDs[site.id]?[displayCategory] ?? displayCategory
                 do {
@@ -78,6 +84,8 @@ public actor ManagedAndroidSpiderClient: VodFetching {
 
     private func resetSpider(site: Site) async {
         _ = try? await call(operation: "destroy", site: site)
+        categoryIDs[site.id] = nil
+        categoryNames[site.id] = nil
     }
 
     public func detail(site: Site, vodId: Int) async throws -> Vod {
@@ -129,14 +137,12 @@ public actor ManagedAndroidSpiderClient: VodFetching {
             throw ManagedAndroidSpiderError.invalidResponse("缺少可解码 data（operation=\(operation), site=\(site.name)）")
         }
         var current = value
+        let jarDescription = site.jar ?? globalSpiderURL ?? ""
         for _ in 0..<3 {
             if case .string(let text) = current,
                text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                if operation == "browse" {
-                    return Data("{\"list\":[]}".utf8)
-                }
                 throw ManagedAndroidSpiderError.invalidResponse(
-                    "Bridge 返回空字符串（operation=\(operation), site=\(site.name)）"
+                    "Bridge 返回空字符串（operation=\(operation), site=\(site.name), api=\(site.api), jar=\(jarDescription)）"
                 )
             }
             if case .string(let text) = current,
@@ -149,7 +155,7 @@ public actor ManagedAndroidSpiderClient: VodFetching {
         }
         guard JSONSerialization.isValidJSONObject(current.asAny) else {
             throw ManagedAndroidSpiderError.invalidResponse(
-                "data 不是 JSON 容器（operation=\(operation), site=\(site.name), value=\(current)）"
+                "data 不是 JSON 容器（operation=\(operation), site=\(site.name), api=\(site.api), jar=\(jarDescription), value=\(current)）"
             )
         }
         return try JSONSerialization.data(withJSONObject: current.asAny)
