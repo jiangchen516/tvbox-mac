@@ -238,10 +238,12 @@ struct PlayerView: View {
         resolving = true
         resolveError = nil
         playUrl = nil
+        PlayerLog.append("▶ 开始解析：\(site.name) \(vod.vod_name) [\(episode.group)] \(episode.title)")
         Task {
             do {
                 let headers = HeaderParser.parse(site.header)
                 let resolved = try await appState.client.resolvePlayUrl(site: site, vod: vod, episode: episode)
+                PlayerLog.append("✔ 解析完成 → \(resolved.prefix(150))")
                 guard let url = URL(string: resolved) else {
                     resolveError = "播放地址无效: \(resolved)"
                     return
@@ -254,6 +256,7 @@ struct PlayerView: View {
                 controller.play(url: url, headers: headers)
                 playUrl = url
             } catch {
+                PlayerLog.append("❌ 解析失败: \(error.localizedDescription)")
                 resolveError = "解析失败: \(error.localizedDescription)"
             }
             resolving = false

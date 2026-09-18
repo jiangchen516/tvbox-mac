@@ -23,6 +23,10 @@ public final class PlayerController: ObservableObject {
     private var saveTask: Task<Void, Never>?
     private var stallCount: Int = 0   // 停顿看门狗计数（0.5s 一次）
     private var lastSpeedRead: TimeInterval = 0   // 网速读取限频（5s 一次，降低对加载管线的干扰）
+    private var lastBufferingState: Bool?
+    private var logObservers: [NSObjectProtocol] = []
+    private var statusObservation: NSKeyValueObservation?
+    private var tcObservation: NSKeyValueObservation?
 
     public init() {
         self.player = AVPlayer()
@@ -60,6 +64,30 @@ public final class PlayerController: ObservableObject {
     private func ensureObservers() {
         guard !observersSetup else { return }
         observersSetup = true
+        // 诊断日志：item 状态 / 时间控制状态 / access & error log 新条目
+        statusObservation = player.observe(\.currentItem?.status, options: [.new]) { [weak self] _, _ in
+            guard let item = self?.player.currentItem else { return }
+            PlayerLog.append("item.status=\(item.status.rawValue) error=\(item.error?.localizedDescription ?? "-")")
+            if item.status == .failed {
+                PlayerLog.append(PlayerLog.errorEntrySummary(item))
+                if let err = item.error { PlayerLog.append("item.error 详情: \(err)") }
+            }
+        }
+        tcObservation = player.observe(\.timeControlStatus, options: [.new]) { p, _ in
+            PlayerLog.append("timeControlStatus=\(p.timeControlStatus.rawValue) t=\(Int(p.currentTime().seconds))s")
+        }
+        logObservers.append(NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemNewAccessLogEntry, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let item = note.object as? AVPlayerItem, item === self?.player.currentItem else { return }
+            PlayerLog.append("accessLog \(PlayerLog.accessEntrySummary(item))")
+        })
+        logObservers.append(NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemNewErrorLogEntry, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let item = note.object as? AVPlayerItem, item === self?.player.currentItem else { return }
+            PlayerLog.append(PlayerLog.errorEntrySummary(item))
+        })
         timeObserver = player.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
             queue: .main
@@ -77,6 +105,10 @@ public final class PlayerController: ObservableObject {
                     s.bufferedTime = range.start.seconds + range.duration.seconds
                 }
                 s.isBuffering = !item.isPlaybackLikelyToKeepUp
+                if s.lastBufferingState != s.isBuffering {
+                    PlayerLog.append("缓冲状态→\(s.isBuffering ? "缓冲中" : "稳定") 已缓冲=\(Int(s.bufferedTime))s t=\(Int(s.currentTime))s")
+                    s.lastBufferingState = s.isBuffering
+                }
                 // 网速：AVPlayerItemAccessLog 的实测吞吐（bps），限频 5s 一次（降低对加载管线的干扰）
                 if CACurrentMediaTime() - s.lastSpeedRead >= 5 {
                     s.lastSpeedRead = CACurrentMediaTime()
@@ -92,6 +124,7 @@ public final class PlayerController: ObservableObject {
                 s.stallCount += 1
                 if s.stallCount >= 6 && s.isPlaying {
                     s.stallCount = 0
+                    PlayerLog.append("看门狗：停顿 3s，轻推 play() t=\(Int(s.currentTime))s")
                     s.player.play()
                 }
             } else {
@@ -101,6 +134,7 @@ public final class PlayerController: ObservableObject {
             if let err = s.player.currentItem?.error,
                s.error != err.localizedDescription {
                 s.error = err.localizedDescription
+                PlayerLog.append("❌ player.error: \(err.localizedDescription)")
             }
         }
     }
@@ -109,6 +143,7 @@ public final class PlayerController: ObservableObject {
     public func play(url: URL, headers: [String: String] = [:]) {
         error = nil
         ensureObservers()
+        PlayerLog.append("▶ play \(url.absoluteString) headers=\(headers.isEmpty ? "无" : "\(headers.count) 项")")
         var opts: [String: Any] = [:]
         if !headers.isEmpty {
             // 用字面量键：AVFoundation 的 option-key 常量值恒等于其名称，
@@ -121,6 +156,7 @@ public final class PlayerController: ObservableObject {
         if let key = positionKey {
             let pos = UserDefaults.standard.double(forKey: "tvboxpos.\(key)")
             if pos > 5 {
+                PlayerLog.append("续播 seek 到 \(Int(pos))s（0.8s 后）")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
                     guard let self else { return }
                     self.currentTime = pos
@@ -176,6 +212,7 @@ public final class PlayerController: ObservableObject {
     }
 
     public func stop() {
+        PlayerLog.append("⏹ stop t=\(Int(currentTime))s")
         saveTask?.cancel()
         savePosition()
         player.pause()
