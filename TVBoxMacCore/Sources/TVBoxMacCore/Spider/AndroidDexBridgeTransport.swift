@@ -79,7 +79,7 @@ private struct BridgeInvokeRequest: Encodable {
         } ?? ""
         jarURL = request.site.jar ?? ""
         jarMD5 = ""
-        method = request.operation
+        method = request.operation == "browse" ? "category" : request.operation
         switch request.operation {
         case "categories":
             arguments = [.bool(true)]
