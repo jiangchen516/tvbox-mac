@@ -12,47 +12,10 @@ import SwiftUI
 struct PlayerVideoView: NSViewRepresentable {
     let player: AVPlayer
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    final class Coordinator: NSObject {
-        weak var playerView: AVPlayerView?
-        // toggleFullScreen 在 27.0 SDK 被标成 macOS 27+（运行时老系统一直有）——
-        // 用 ObjC runtime 调用，fallback 到窗口级全屏
-        @objc func toggleFullscreen(_ sender: Any?) {
-            let sel = NSSelectorFromString("toggleFullScreen:")
-            if let v = playerView, v.responds(to: sel) {
-                v.perform(sel, with: sender)
-            } else {
-                NSApp.keyWindow?.toggleFullScreen(nil)
-            }
-        }
-    }
-
     func makeNSView(context: Context) -> AVPlayerView {
         let v = AVPlayerView()
         v.player = player
         v.controlsStyle = .default
-        context.coordinator.playerView = v
-        // 全屏按钮钉在 contentOverlayView 右下角（原生进度条右端上方）：
-        // 原生控制条是 AVKit 私有布局，外部按钮无法注入进度条旁边，
-        // contentOverlayView 是公开 API（原生控件和画面之间的覆盖层）
-        if let overlay = v.contentOverlayView {
-            let btn = NSButton(title: "", target: context.coordinator,
-                               action: #selector(Coordinator.toggleFullscreen(_:)))
-            btn.bezelStyle = .regularSquare
-            btn.isBordered = false
-            btn.image = NSImage(systemSymbolName: "arrow.up.left.and.arrow.down.right",
-                                accessibilityDescription: "全屏")
-            btn.contentTintColor = .white
-            btn.alphaValue = 0.85
-            btn.toolTip = "全屏"
-            btn.translatesAutoresizingMaskIntoConstraints = false
-            overlay.addSubview(btn)
-            NSLayoutConstraint.activate([
-                btn.trailingAnchor.constraint(equalTo: overlay.trailingAnchor, constant: -12),
-                btn.bottomAnchor.constraint(equalTo: overlay.bottomAnchor, constant: -56),
-            ])
-        }
         return v
     }
 
@@ -78,24 +41,61 @@ struct PlayerView: View {
     @State private var resolving: Bool = true
     @State private var playUrl: URL?
     @State private var resolveError: String?
+    // 控制条自动隐藏：鼠标进入显示，静止 3s（播放中）或移出淡出——与自带播放器同逻辑
+    @State private var controlsVisible: Bool = false
+    @State private var controlsIdleTask: Task<Void, Never>?
 
     var body: some View {
-        VStack(spacing: 0) {
+        ZStack(alignment: .bottom) {
             videoArea
-            if let err = resolveError {
-                errorArea(err)
+            VStack(spacing: 0) {
+                if let err = resolveError {
+                    errorArea(err)
+                }
+                controlBar
             }
-            controlBar
+            .opacity(controlsVisible ? 1 : 0)
+            .allowsHitTesting(controlsVisible)
         }
         .background(.black)
+        .onHover { hovering in
+            if hovering {
+                showControls()
+            } else {
+                hideControls()
+            }
+        }
+        .onContinuousHover { phase in
+            if case .active = phase { showControls() }   // 鼠标移动刷新显示计时
+        }
         .onAppear {
             let key = "\(site.id)#\(vod.vod_id)#\(episode.group)#\(episode.title)"
             controller.setPositionKey(key)
             startResolve()
+            showControls()
         }
         .onDisappear {
+            controlsIdleTask?.cancel()
             controller.stop()
         }
+    }
+
+    private func showControls() {
+        controlsIdleTask?.cancel()
+        withAnimation(.easeInOut(duration: 0.2)) { controlsVisible = true }
+        // 播放中静止 3 秒自动淡出；暂停时常驻
+        guard controller.isPlaying else { return }
+        controlsIdleTask = Task {
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            if !Task.isCancelled {
+                withAnimation(.easeInOut(duration: 0.2)) { controlsVisible = false }
+            }
+        }
+    }
+
+    private func hideControls() {
+        controlsIdleTask?.cancel()
+        withAnimation(.easeInOut(duration: 0.2)) { controlsVisible = false }
     }
 
     @ViewBuilder
@@ -193,6 +193,12 @@ struct PlayerView: View {
 
             Spacer()
 
+            Text("\(timeString(controller.currentTime)) / \(timeString(controller.duration))")
+                .monospacedDigit().font(.caption).foregroundStyle(.white)
+
+            Text("第 \(currentIndex + 1)/\(episodes.count) 集")
+                .font(.caption).foregroundStyle(.white.opacity(0.7))
+
             Button {
                 NSApp.keyWindow?.toggleFullScreen(nil)
             } label: {
@@ -201,12 +207,6 @@ struct PlayerView: View {
             .buttonStyle(.plain)
             .foregroundStyle(.white)
             .help("全屏")
-
-            Text("\(timeString(controller.currentTime)) / \(timeString(controller.duration))")
-                .monospacedDigit().font(.caption).foregroundStyle(.white)
-
-            Text("第 \(currentIndex + 1)/\(episodes.count) 集")
-                .font(.caption).foregroundStyle(.white.opacity(0.7))
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
