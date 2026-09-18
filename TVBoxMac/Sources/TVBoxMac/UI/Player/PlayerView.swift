@@ -12,10 +12,47 @@ import SwiftUI
 struct PlayerVideoView: NSViewRepresentable {
     let player: AVPlayer
 
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator: NSObject {
+        weak var playerView: AVPlayerView?
+        // toggleFullScreen 在 27.0 SDK 被标成 macOS 27+（运行时老系统一直有）——
+        // 用 ObjC runtime 调用，fallback 到窗口级全屏
+        @objc func toggleFullscreen(_ sender: Any?) {
+            let sel = NSSelectorFromString("toggleFullScreen:")
+            if let v = playerView, v.responds(to: sel) {
+                v.perform(sel, with: sender)
+            } else {
+                NSApp.keyWindow?.toggleFullScreen(nil)
+            }
+        }
+    }
+
     func makeNSView(context: Context) -> AVPlayerView {
         let v = AVPlayerView()
         v.player = player
         v.controlsStyle = .default
+        context.coordinator.playerView = v
+        // 全屏按钮钉在 contentOverlayView 右下角（原生进度条右端上方）：
+        // 原生控制条是 AVKit 私有布局，外部按钮无法注入进度条旁边，
+        // contentOverlayView 是公开 API（原生控件和画面之间的覆盖层）
+        if let overlay = v.contentOverlayView {
+            let btn = NSButton(title: "", target: context.coordinator,
+                               action: #selector(Coordinator.toggleFullscreen(_:)))
+            btn.bezelStyle = .regularSquare
+            btn.isBordered = false
+            btn.image = NSImage(systemSymbolName: "arrow.up.left.and.arrow.down.right",
+                                accessibilityDescription: "全屏")
+            btn.contentTintColor = .white
+            btn.alphaValue = 0.85
+            btn.toolTip = "全屏"
+            btn.translatesAutoresizingMaskIntoConstraints = false
+            overlay.addSubview(btn)
+            NSLayoutConstraint.activate([
+                btn.trailingAnchor.constraint(equalTo: overlay.trailingAnchor, constant: -12),
+                btn.bottomAnchor.constraint(equalTo: overlay.bottomAnchor, constant: -56),
+            ])
+        }
         return v
     }
 
@@ -73,7 +110,7 @@ struct PlayerView: View {
             PlayerVideoView(player: controller.player)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .overlay(alignment: .topTrailing) {
-                    // 缓冲屏显：画面右上角
+                    // 缓冲屏显：画面右上角（已缓冲位置 + 实测网速）
                     HStack(spacing: 4) {
                         if controller.isBuffering {
                             ProgressView().controlSize(.small)
@@ -81,6 +118,7 @@ struct PlayerView: View {
                         } else {
                             Text("已缓冲 \(timeString(controller.bufferedTime))")
                         }
+                        Text("· \(speedString(controller.networkSpeed))")
                     }
                     .font(.caption).foregroundStyle(.white)
                     .padding(6)
@@ -185,6 +223,14 @@ struct PlayerView: View {
         return s >= 3600
             ? String(format: "%d:%02d:%02d", s / 3600, (s % 3600) / 60, s % 60)
             : String(format: "%d:%02d", s / 60, s % 60)
+    }
+
+    /// 网速格式化（bps → KB/s / MB/s）
+    private func speedString(_ bps: Double) -> String {
+        guard bps.isFinite, bps > 0 else { return "-- KB/s" }
+        let kbps = bps / 8 / 1024
+        if kbps >= 1024 { return String(format: "%.1f MB/s", kbps / 1024) }
+        return String(format: "%.0f KB/s", kbps)
     }
 
     private func startResolve() {

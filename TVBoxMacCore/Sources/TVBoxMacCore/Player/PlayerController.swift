@@ -12,6 +12,7 @@ public final class PlayerController: ObservableObject {
     @Published public var currentTime: Double = 0
     @Published public var duration: Double = 0
     @Published public var bufferedTime: Double = 0
+    @Published public var networkSpeed: Double = 0   // 实测下载吞吐（bits/s，accessLog.observedBitrate）
     @Published public var rate: Float = 1.0
     @Published public var error: String?
 
@@ -24,6 +25,29 @@ public final class PlayerController: ObservableObject {
 
     public init() {
         self.player = AVPlayer()
+    }
+
+    /// 从 AVPlayerItem 的 accessLog 读实测吞吐（observedBitrate，bps）
+    /// 全程 ObjC runtime（perform），绕开 27.0 SDK 对 accessLog 的 macOS 27+ 标注
+    static func readNetworkSpeed(from item: AVPlayerItem, handler: @escaping (Double) -> Void) {
+        #if canImport(AppKit)
+        DispatchQueue.global(qos: .utility).async {
+            let sel = NSSelectorFromString("accessLog")
+            guard item.responds(to: sel),
+                  let log = item.perform(sel)?.takeUnretainedValue(),
+                  let events = log.perform(NSSelectorFromString("events"))?
+                      .takeUnretainedValue() as? [Any],
+                  let event = events.last,
+                  let bps = (event as AnyObject).perform(NSSelectorFromString("observedBitrate"))?
+                      .takeUnretainedValue() as? Double else {
+                DispatchQueue.main.async { handler(0) }
+                return
+            }
+            DispatchQueue.main.async { handler(bps) }
+        }
+        #else
+        handler(0)
+        #endif
     }
 
     private func ensureObservers() {
@@ -45,6 +69,12 @@ public final class PlayerController: ObservableObject {
                     self?.bufferedTime = range.start.seconds + range.duration.seconds
                 }
                 self?.isBuffering = !item.isPlaybackLikelyToKeepUp
+                // 网速：AVPlayerItemAccessLog 的实测吞吐（bps）。
+                // accessLog 在 27.0 SDK 被标成 macOS 27+，但运行时老系统一直有——
+                // 用 ObjC runtime 调用绕开编译期标注（26/27 都可用）
+                Self.readNetworkSpeed(from: item) { [weak self] bps in
+                    self?.networkSpeed = bps
+                }
             }
             // 停顿看门狗：seek 到未缓冲区后 AVPlayer 常停在 waiting 状态不自动恢复，
             // 停顿超 3 秒轻推一次 play() 触发重新缓冲
@@ -154,6 +184,7 @@ public final class PlayerController {
     public var isPlaying: Bool { false }
     public var isBuffering: Bool { false }
     public var bufferedTime: Double { 0 }
+    public var networkSpeed: Double { 0 }
     public var currentTime: Double { 0 }
     public var duration: Double { 0 }
     public var rate: Float { 1.0 }
