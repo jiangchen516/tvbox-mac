@@ -4,6 +4,7 @@ import TVBoxMacCore
 
 struct DetailView: View {
     @EnvironmentObject var appState: AppState
+    @EnvironmentObject private var playerSession: PlayerSession
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openWindow) private var openWindow
     let site: Site
@@ -104,9 +105,10 @@ struct DetailView: View {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 10)], spacing: 10) {
                 ForEach(episodes) { ep in
                     Button {
-                        // 独立播放器窗口：可自由移动/全屏，不随详情 sheet 关闭
-                        openWindow(id: "player", value: PlayerPayload(
-                            site: site, vod: fullVod ?? vod, episode: ep, episodes: episodes))
+                        // 单实例播放器窗口：更新共享 session 后聚焦现有窗口（不开第二个）
+                        playerSession.payload = PlayerPayload(
+                            site: site, vod: fullVod ?? vod, episode: ep, episodes: episodes)
+                        openWindow(id: "player")
                     } label: {
                         Text(ep.title)
                             .font(.callout)

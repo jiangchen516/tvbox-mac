@@ -7,53 +7,64 @@ struct TVBoxMacApp: App {
     // 点窗口 x（关闭最后一个窗口）时直接退出 app
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var appState = AppState()
+    @StateObject private var playerSession = PlayerSession()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(appState)
+                .environmentObject(playerSession)
                 .frame(minWidth: 900, minHeight: 560)
         }
         .commands {
             CommandGroup(replacing: .newItem) {}
         }
 
-        // 独立播放器窗口：可自由移动/缩放，与主窗口无关；点集时 openWindow 打开
-        WindowGroup(id: "player", for: PlayerPayload.self) { $payload in
-            if let p = payload {
-                PlayerWindowView(payload: p,
-                                 dismissWindow: { payload = nil },
-                                 onSwitchEpisode: { newEp in payload?.episode = newEp })
-                    .environmentObject(appState)
-            }
+        // 独立播放器窗口：单实例（普通 Window 场景，无 for 载荷）——
+        // 内容读共享 PlayerSession，选新的一集时更新 session 即切集，openWindow 只聚焦
+        Window("播放", id: "player") {
+            PlayerWindowView()
+                .environmentObject(playerSession)
         }
         .windowResizability(.contentSize)
     }
 }
 
-/// 播放器窗口的载荷（Site/Vod/Episode 均可 Codable+Hashable）
+/// 播放器窗口的共享状态（Site/Vod/Episode 均可 Codable+Hashable）
+@MainActor
+final class PlayerSession: ObservableObject {
+    @Published var payload: PlayerPayload?
+}
+
+/// 播放器窗口的载荷
 struct PlayerPayload: Codable, Hashable {
     let site: Site
     let vod: Vod
-    var episode: Episode     // 切集时经 binding 更新（同窗口换集）
+    var episode: Episode     // 切集时更新（同窗口换集）
     let episodes: [Episode]
 }
 
 struct PlayerWindowView: View {
-    let payload: PlayerPayload
-    let dismissWindow: () -> Void
-    let onSwitchEpisode: (Episode) -> Void
+    @EnvironmentObject private var session: PlayerSession
 
     var body: some View {
-        let idx = payload.episodes.firstIndex(where: { $0.id == payload.episode.id }) ?? 0
-        PlayerView(site: payload.site, vod: payload.vod, episode: payload.episode,
-                   onClose: dismissWindow,
-                   episodes: payload.episodes,
-                   currentIndex: idx,
-                   onSwitchEpisode: onSwitchEpisode)
-                   .id(payload.episode.id)   // 切集重建播放器（重新解析地址）
-                   .frame(minWidth: 720, minHeight: 480)
-                   .navigationTitle(payload.vod.vod_name)
+        Group {
+            if let p = session.payload {
+                let idx = p.episodes.firstIndex(where: { $0.id == p.episode.id }) ?? 0
+                PlayerView(site: p.site, vod: p.vod, episode: p.episode,
+                           episodes: p.episodes,
+                           currentIndex: idx,
+                           onSwitchEpisode: { newEp in
+                               session.payload?.episode = newEp
+                           })
+                    .id(p.episode.id)   // 切集重建播放器（重新解析地址）
+            } else {
+                Text("没有正在播放的内容").foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .frame(minWidth: 720, minHeight: 480)
+        .navigationTitle(session.payload?.vod.vod_name ?? "播放")
     }
 }
 
