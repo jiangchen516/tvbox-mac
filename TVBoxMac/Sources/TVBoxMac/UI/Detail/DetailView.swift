@@ -26,6 +26,19 @@ struct DetailView: View {
         }
         .onAppear { loadDetail() }
         .frame(width: 760, height: 620)   // 固定尺寸：macOS sheet 按内容撑，会占满父窗宽度
+        // 关闭按钮放窗口右上角（Esc 也可关）
+        .overlay(alignment: .topTrailing) {
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .padding(10)
+            .help("关闭 (Esc)")
+        }
     }
 
     private var header: some View {
@@ -66,16 +79,6 @@ struct DetailView: View {
                     }
                     .buttonStyle(.borderless)
                     Spacer()
-                    // 可见关闭按钮（Esc 之外的常规关闭方式）
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.title3)
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.borderless)
-                    .help("关闭 (Esc)")
                 }
             }
             Spacer()

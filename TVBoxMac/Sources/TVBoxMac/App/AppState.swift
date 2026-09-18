@@ -30,7 +30,21 @@ final class AppState: ObservableObject {
         let entries = await configStore.load()
         configs = entries
         await client.loadConfigs(entries.map { $0.loaded })
-        selectedSite = nil
+        // 重启后回到上次选中的站点（直接显示其主页/第一个分类页）
+        if let last = UserDefaults.standard.string(forKey: Self.lastSiteKey) {
+            selectedSite = enabledSites.first { $0.id == last }
+        } else {
+            selectedSite = nil
+        }
+    }
+
+    private static let lastSiteKey = "tvboxmac.lastSiteID"
+
+    /// 记录当前选中站点（站点切换时调用）
+    func rememberSelectedSite() {
+        if let id = selectedSite?.id {
+            UserDefaults.standard.set(id, forKey: Self.lastSiteKey)
+        }
     }
 
     /// 导入配置（URL，可能是单配置或聚合列表；按响应内容自动判断）

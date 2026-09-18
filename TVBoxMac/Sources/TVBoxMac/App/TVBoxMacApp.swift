@@ -47,6 +47,7 @@ struct PlayerPayload: Codable, Hashable {
 
 struct PlayerWindowView: View {
     @EnvironmentObject private var session: PlayerSession
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         Group {
@@ -60,8 +61,12 @@ struct PlayerWindowView: View {
                            })
                     .id(p.episode.id)   // 切集重建播放器（重新解析地址）
             } else {
-                Text("没有正在播放的内容").foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // 系统状态恢复出来的空播放窗口（崩溃/异常退出后残留）→ 自动关掉，
+                // 不留下空白播放窗口
+                Color.clear
+                    .onAppear {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { dismiss() }
+                    }
             }
         }
         .frame(minWidth: 720, minHeight: 480)
@@ -117,6 +122,10 @@ struct ContentView: View {
         }
         .sheet(isPresented: $appState.showSettings) {
             SettingsView()
+        }
+        // 站点切换时记录，重启后自动回到该站点
+        .onChange(of: appState.selectedSite?.id) { _ in
+            appState.rememberSelectedSite()
         }
         .toolbar {
             ToolbarItem {

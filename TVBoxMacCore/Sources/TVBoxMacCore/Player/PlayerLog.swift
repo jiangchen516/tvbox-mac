@@ -60,33 +60,40 @@ public enum PlayerLog {
     }
 
     #if canImport(AVFoundation)
+    /// 安全 KVC 读取：键不存在时 KVC 抛 NSException（valueForUndefinedKey），
+    /// Swift 无法 catch → 直接 abort（实测崩溃）。所有键必须先 responds(to:) 预检
+    static func kv(_ obj: NSObject?, _ key: String) -> Any? {
+        guard let obj, obj.responds(to: NSSelectorFromString(key)) else { return nil }
+        return obj.value(forKey: key)
+    }
+
     /// 读 access log 最新一条（uri/码率/分段下载量）——字段经 KVC（见 readNetworkSpeed 注释）
     static func accessEntrySummary(_ item: AVPlayerItem) -> String {
-        guard let log = item.value(forKey: "accessLog") as? NSObject,
-              let events = log.value(forKey: "events") as? [Any],
+        guard let log = kv(item, "accessLog") as? NSObject,
+              let events = kv(log, "events") as? [Any],
               let e = events.last as? NSObject else { return "access log 不可读" }
-        let uri = (e.value(forKey: "uri") as? String) ?? "-"
-        let bitrate = (e.value(forKey: "observedBitrate") as? Double) ?? 0
-        let segDur = (e.value(forKey: "segmentsDownloadedDuration") as? Double) ?? 0
-        let segBytes = (e.value(forKey: "segmentsDownloadedBytes") as? Double) ?? 0
-        let reqs = (e.value(forKey: "numberOfMediaRequests") as? Int) ?? 0
-        let stall = (e.value(forKey: "numberOfStalls") as? Int) ?? 0
+        let uri = (kv(e, "uri") as? String) ?? "-"
+        let bitrate = (kv(e, "observedBitrate") as? Double) ?? 0
+        let segDur = (kv(e, "segmentsDownloadedDuration") as? Double) ?? 0
+        let segBytes = (kv(e, "segmentsDownloadedBytes") as? Double) ?? 0
+        let reqs = (kv(e, "numberOfMediaRequests") as? Int) ?? 0
+        let stall = (kv(e, "numberOfStalls") as? Int) ?? 0
         return "uri=\(uri.prefix(110)) 码率=\(safeInt(bitrate / 1024))Kbps 分段=\(safeInt(segDur))s/\(safeInt(segBytes / 1024))KB 请求=\(reqs) 停顿=\(stall)"
     }
 
     /// 读 error log 最新一条（加载环节的具体错误）
     static func errorEntrySummary(_ item: AVPlayerItem) -> String {
-        guard let log = item.value(forKey: "errorLog") as? NSObject,
-              let events = log.value(forKey: "errorLogEvents") as? [Any]
-                  ?? log.value(forKey: "events") as? [Any],
+        guard let log = kv(item, "errorLog") as? NSObject,
+              let events = (kv(log, "events") as? [Any]),
               let e = events.last as? NSObject else { return "error log 不可读" }
-        let domain = (e.value(forKey: "errorDomain") as? String) ?? "-"
-        let code = (e.value(forKey: "errorStatusCode") as? Int) ?? -1
-        let comment = (e.value(forKey: "errorComment") as? String) ?? "-"
-        let uri = (e.value(forKey: "uri") as? String) ?? "-"
+        let domain = (kv(e, "errorDomain") as? String) ?? "-"
+        let code = (kv(e, "errorStatusCode") as? Int) ?? -1
+        let comment = (kv(e, "errorComment") as? String) ?? "-"
+        let uri = (kv(e, "uri") as? String) ?? "-"
         return "❌ uri=\(uri.prefix(110)) [\(domain) code=\(code)] \(comment)"
     }
     #else
+    static func kv(_ obj: AnyObject?, _ key: String) -> Any? { nil }
     static func accessEntrySummary(_: AnyObject) -> String { "-" }
     static func errorEntrySummary(_: AnyObject) -> String { "-" }
     #endif

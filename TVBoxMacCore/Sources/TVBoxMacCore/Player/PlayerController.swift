@@ -41,22 +41,10 @@ public final class PlayerController: ObservableObject {
     /// KVC 自动装箱成 NSNumber，全程安全；键不存在时 responds(to:) 预检。
     /// ⚠️ 必须主线程调用：AVPlayerItem 有线程亲和性
     static func readNetworkSpeed(from item: AVPlayerItem, handler: (Double) -> Void) {
-        let sel = NSSelectorFromString("accessLog")
-        guard item.responds(to: sel),
-              let log = item.value(forKey: "accessLog") as? NSObject else {
-            handler(0)
-            return
-        }
-        let evSel = NSSelectorFromString("events")
-        guard log.responds(to: evSel),
-              let events = log.value(forKey: "events") as? [Any],
-              let event = events.last as? NSObject else {
-            handler(0)
-            return
-        }
-        let bpsSel = NSSelectorFromString("observedBitrate")
-        guard event.responds(to: bpsSel),
-              let bps = event.value(forKey: "observedBitrate") as? Double else {
+        guard let log = PlayerLog.kv(item, "accessLog") as? NSObject,
+              let events = PlayerLog.kv(log, "events") as? [Any],
+              let event = events.last as? NSObject,
+              let bps = PlayerLog.kv(event, "observedBitrate") as? Double else {
             handler(0)
             return
         }
