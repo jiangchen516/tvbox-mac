@@ -11,6 +11,7 @@ public final class PlayerController: ObservableObject {
     @Published public var isBuffering: Bool = false
     @Published public var currentTime: Double = 0
     @Published public var duration: Double = 0
+    @Published public var bufferedTime: Double = 0
     @Published public var rate: Float = 1.0
     @Published public var error: String?
 
@@ -36,6 +37,13 @@ public final class PlayerController: ObservableObject {
             // （不用 C 函数 CMTimeIsValid：部分工具链下该 C 符号导入异常）
             if let d = self?.player.currentItem?.asset.duration, d.seconds.isFinite {
                 self?.duration = d.seconds
+            }
+            // 缓冲跟踪：已缓冲前沿位置 + 是否还需缓冲（屏显用）
+            if let item = self?.player.currentItem {
+                if let range = item.loadedTimeRanges.last?.timeRangeValue {
+                    self?.bufferedTime = range.start.seconds + range.duration.seconds
+                }
+                self?.isBuffering = !item.isPlaybackLikelyToKeepUp
             }
             // 播放失败时把 AVPlayer 的错误暴露给 UI（否则只有黑屏没提示）
             if let err = self?.player.currentItem?.error,
@@ -131,6 +139,7 @@ import Foundation
 public final class PlayerController {
     public var isPlaying: Bool { false }
     public var isBuffering: Bool { false }
+    public var bufferedTime: Double { 0 }
     public var currentTime: Double { 0 }
     public var duration: Double { 0 }
     public var rate: Float { 1.0 }

@@ -26,12 +26,11 @@ struct PlayerVideoView: NSViewRepresentable {
 
 struct PlayerView: View {
     @EnvironmentObject var appState: AppState
-    @Environment(\.dismiss) private var dismiss
 
     let site: Site
     let vod: Vod
     let episode: Episode
-    // 详情页内嵌播放时传回调关闭（避免嵌套 sheet 在 macOS 上静默失败）
+    // 独立窗口的关闭回调（窗口 X 也能直接关）
     var onClose: (() -> Void)?
     // 上一集/下一集（原生控制条没有；由详情页传入）
     var episodes: [Episode] = []
@@ -59,24 +58,6 @@ struct PlayerView: View {
         }
         .onDisappear {
             controller.stop()
-        }
-        .overlay(alignment: .top) {
-            HStack {
-                Button {
-                    controller.stop()
-                    if let onClose { onClose() } else { dismiss() }
-                } label: {
-                    Label("返回", systemImage: "chevron.left")
-                }
-                .buttonStyle(.bordered)
-                .tint(.white)
-                Spacer()
-                Text("\(vod.vod_name) - \(episode.title)")
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-            }
-            .padding()
-            .background(.black.opacity(0.4))
         }
     }
 
@@ -120,8 +101,8 @@ struct PlayerView: View {
     }
 
     private var controlBar: some View {
-        // 播放/暂停、拖进度、音量、全屏、画中画都在 AVPlayerView 原生控制条里；
-        // 这里只放原生没有的：上一集/下一集、倍速
+        // 播放/暂停、拖进度、音量、画中画在 AVPlayerView 原生控制条里；
+        // 这里放：上一集/下一集、倍速、屏显（时间/缓冲）、全屏
         HStack(spacing: 16) {
             Button {
                 guard currentIndex > 0, let onSwitchEpisode else { return }
@@ -158,6 +139,31 @@ struct PlayerView: View {
             .help(currentIndex < episodes.count - 1 ? episodes[currentIndex + 1].title : "已是最后一集")
 
             Spacer()
+
+            // 屏显：当前时间/总时长 + 缓冲进度
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("\(timeString(controller.currentTime)) / \(timeString(controller.duration))")
+                    .monospacedDigit().font(.caption).foregroundStyle(.white)
+                HStack(spacing: 4) {
+                    if controller.isBuffering {
+                        ProgressView().controlSize(.mini)
+                        Text("缓冲中…").font(.caption2).foregroundStyle(.white.opacity(0.7))
+                    } else {
+                        Text("已缓冲 \(timeString(controller.bufferedTime))")
+                            .font(.caption2).foregroundStyle(.white.opacity(0.7))
+                    }
+                }
+            }
+
+            Button {
+                NSApp.keyWindow?.toggleFullScreen(nil)
+            } label: {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.white)
+            .help("全屏")
+
             Text("第 \(currentIndex + 1)/\(episodes.count) 集")
                 .font(.caption).foregroundStyle(.white.opacity(0.7))
         }
@@ -168,6 +174,14 @@ struct PlayerView: View {
         .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { _ in
             controller.isPlaying = false
         }
+    }
+
+    private func timeString(_ t: Double) -> String {
+        guard t.isFinite, t >= 0 else { return "0:00" }
+        let s = Int(t)
+        return s >= 3600
+            ? String(format: "%d:%02d:%02d", s / 3600, (s % 3600) / 60, s % 60)
+            : String(format: "%d:%02d", s / 60, s % 60)
     }
 
     private func startResolve() {
