@@ -46,16 +46,17 @@ struct PlayerView: View {
     @State private var controlsIdleTask: Task<Void, Never>?
 
     var body: some View {
-        ZStack(alignment: .bottom) {
+        // 控制条在画面下方折叠显隐：显示时画面略缩，隐藏时画面占满——
+        // 与 AVPlayerView 悬停出现的原生进度条（覆盖画面底部）不重叠
+        VStack(spacing: 0) {
             videoArea
-            VStack(spacing: 0) {
-                if let err = resolveError {
-                    errorArea(err)
-                }
-                controlBar
+            if let err = resolveError {
+                errorArea(err)
             }
-            .opacity(controlsVisible ? 1 : 0)
-            .allowsHitTesting(controlsVisible)
+            if controlsVisible {
+                controlBar
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
         .background(.black)
         .onHover { hovering in
@@ -83,7 +84,7 @@ struct PlayerView: View {
     private func showControls() {
         controlsIdleTask?.cancel()
         withAnimation(.easeInOut(duration: 0.2)) { controlsVisible = true }
-        // 播放中静止 3 秒自动淡出；暂停时常驻
+        // 播放中静止 3 秒自动折叠；暂停时常驻
         guard controller.isPlaying else { return }
         controlsIdleTask = Task {
             try? await Task.sleep(nanoseconds: 3_000_000_000)
