@@ -41,7 +41,7 @@ public actor ManagedAndroidSpiderClient: VodFetching {
                 let displayCategory = category ?? ""
                 let resolvedCategory = categoryIDs[site.id]?[displayCategory] ?? displayCategory
                 do {
-                        return try await browse(site: site, categoryValue: resolvedCategory, page: page)
+            return try await browse(site: site, categoryValue: resolvedCategory, page: page)
                 } catch let error as ManagedAndroidSpiderError
                                         where displayCategory != resolvedCategory
                                         && error.localizedDescription.localizedCaseInsensitiveContains("category invalid") {
@@ -51,19 +51,19 @@ public actor ManagedAndroidSpiderClient: VodFetching {
     }
 
         private func browse(site: Site, categoryValue: String, page: Int) async throws -> VodPage {
-                try await callDecoded(operation: "browse", site: site,
-                                                            arguments: [
-                                                                "category": .string(categoryValue),
-                                                                "page": .number(Double(page))
-                                                            ])
+                let data = try await call(operation: "browse", site: site, arguments: [
+                        "category": .string(categoryValue),
+                        "page": .number(Double(page))
+                ])
+                return try decodeSpiderPage(from: data, page: page, operation: "browse")
         }
 
     public func search(site: Site, keyword: String, page: Int) async throws -> VodPage {
-        try await callDecoded(operation: "search", site: site,
-                              arguments: [
-                                "keyword": .string(keyword),
-                                "page": .number(Double(page))
-                              ])
+                let data = try await call(operation: "search", site: site, arguments: [
+                        "keyword": .string(keyword),
+                        "page": .number(Double(page))
+                ])
+                return try decodeSpiderPage(from: data, page: page, operation: "search")
     }
 
     public func detail(site: Site, vodId: Int) async throws -> Vod {
@@ -133,6 +133,34 @@ public actor ManagedAndroidSpiderClient: VodFetching {
             let preview = String(data: data.prefix(800), encoding: .utf8) ?? "<binary>"
             throw ManagedAndroidSpiderError.invalidResponse(
                 "JSON 解码失败（operation=\(type), bytes=\(data.count)）：\(error.localizedDescription)；响应前缀=\(preview)"
+            )
+        }
+    }
+
+    private func decodeSpiderPage(from data: Data, page: Int, operation: String) throws -> VodPage {
+        if let page = try? decode(VodPage.self, from: data) {
+            return page
+        }
+        struct SpiderEnvelope: Decodable {
+            let list: [Vod]?
+            let page: Int?
+            let pagecount: Int?
+            let total: Int?
+        }
+        do {
+            let envelope = try JSONDecoder().decode(SpiderEnvelope.self, from: data)
+            let list = envelope.list ?? []
+            return VodPage(
+                page: envelope.page ?? page,
+                pagecount: envelope.pagecount ?? (list.isEmpty ? page : page + 1),
+                limit: 20,
+                total: envelope.total ?? list.count,
+                list: list
+            )
+        } catch {
+            let preview = String(data: data.prefix(800), encoding: .utf8) ?? "<binary>"
+            throw ManagedAndroidSpiderError.invalidResponse(
+                "Spider \(operation) 响应无法映射为列表（bytes=\(data.count)）：\(error.localizedDescription)；响应前缀=\(preview)"
             )
         }
     }
