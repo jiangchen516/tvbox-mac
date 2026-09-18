@@ -5,6 +5,7 @@ import TVBoxMacCore
 struct DetailView: View {
     @EnvironmentObject var appState: AppState
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openWindow) private var openWindow
     let site: Site
     let vod: Vod
 
@@ -12,29 +13,14 @@ struct DetailView: View {
     @State private var currentGroup: String = ""
     @State private var episodes: [Episode] = []
     @State private var isFavorite: Bool = false
-    @State private var playingEpisode: Episode?
     @State private var loadingDetail: Bool = true
 
     var body: some View {
-        ZStack {
-            VStack(spacing: 0) {
-                header
-                if !currentGroup.isEmpty {
-                    groupPicker
-                    episodeGrid
-                }
-            }
-            // 播放器内嵌覆盖（不走嵌套 sheet：macOS 上 sheet 里再开 sheet 常静默失败）
-            if let ep = playingEpisode {
-                let idx = episodes.firstIndex(where: { $0.id == ep.id }) ?? 0
-                PlayerView(site: site, vod: fullVod ?? vod, episode: ep,
-                           onClose: { playingEpisode = nil },
-                           episodes: episodes,
-                           currentIndex: idx,
-                           onSwitchEpisode: { playingEpisode = $0 })
-                    .id(ep.id)   // 切集时重建播放器（重新解析地址）
-                    .background(Color.black)
-                    .transition(.opacity)
+        VStack(spacing: 0) {
+            header
+            if !currentGroup.isEmpty {
+                groupPicker
+                episodeGrid
             }
         }
         .onAppear { loadDetail() }
@@ -118,7 +104,9 @@ struct DetailView: View {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 10)], spacing: 10) {
                 ForEach(episodes) { ep in
                     Button {
-                        playingEpisode = ep
+                        // 独立播放器窗口：可自由移动/全屏，不随详情 sheet 关闭
+                        openWindow(id: "player", value: PlayerPayload(
+                            site: site, vod: fullVod ?? vod, episode: ep, episodes: episodes))
                     } label: {
                         Text(ep.title)
                             .font(.callout)

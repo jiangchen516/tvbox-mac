@@ -136,10 +136,11 @@ struct PlayerView: View {
 
             Menu {
                 ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0], id: \.self) { r in
-                    Button("\(r)×") { controller.setRate(Float(r)) }
+                    // %g 去掉小数点后多余的 0（1.0 → 1）
+                    Button("\(String(format: "%g", r))×") { controller.setRate(Float(r)) }
                 }
             } label: {
-                Label("\(controller.rate)×", systemImage: "gauge.with.needle")
+                Label("\(String(format: "%g", controller.rate))×", systemImage: "gauge.with.needle")
             }
             .menuStyle(.borderlessButton)
             .fixedSize()

@@ -341,7 +341,7 @@ public struct LoadedConfig: Codable, Sendable, Identifiable {
 }
 
 // MARK: - CatVod 数据
-public struct Vod: Codable, Sendable, Identifiable {
+public struct Vod: Codable, Sendable, Identifiable, Hashable {
     public var vod_id: Int
     public var vod_name: String
     public var type_id: Int?
@@ -410,7 +410,7 @@ public struct Vod: Codable, Sendable, Identifiable {
     }
 }
 
-public struct Episode: Codable, Sendable, Identifiable {
+public struct Episode: Codable, Sendable, Identifiable, Hashable {
     public var title: String
     public var url: String
     public var group: String

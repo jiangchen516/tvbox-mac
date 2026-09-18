@@ -17,6 +17,43 @@ struct TVBoxMacApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {}
         }
+
+        // 独立播放器窗口：可自由移动/缩放，与主窗口无关；点集时 openWindow 打开
+        WindowGroup(id: "player", for: PlayerPayload.self) { $payload in
+            if let p = payload {
+                PlayerWindowView(payload: p,
+                                 dismissWindow: { payload = nil },
+                                 onSwitchEpisode: { newEp in payload?.episode = newEp })
+                    .environmentObject(appState)
+            }
+        }
+        .windowResizability(.contentSize)
+    }
+}
+
+/// 播放器窗口的载荷（Site/Vod/Episode 均可 Codable+Hashable）
+struct PlayerPayload: Codable, Hashable {
+    let site: Site
+    let vod: Vod
+    var episode: Episode     // 切集时经 binding 更新（同窗口换集）
+    let episodes: [Episode]
+}
+
+struct PlayerWindowView: View {
+    let payload: PlayerPayload
+    let dismissWindow: () -> Void
+    let onSwitchEpisode: (Episode) -> Void
+
+    var body: some View {
+        let idx = payload.episodes.firstIndex(where: { $0.id == payload.episode.id }) ?? 0
+        PlayerView(site: payload.site, vod: payload.vod, episode: payload.episode,
+                   onClose: dismissWindow,
+                   episodes: payload.episodes,
+                   currentIndex: idx,
+                   onSwitchEpisode: onSwitchEpisode)
+                   .id(payload.episode.id)   // 切集重建播放器（重新解析地址）
+                   .frame(minWidth: 720, minHeight: 480)
+                   .navigationTitle(payload.vod.vod_name)
     }
 }
 
