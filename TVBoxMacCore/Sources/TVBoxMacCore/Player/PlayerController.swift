@@ -28,18 +28,29 @@ public final class PlayerController: ObservableObject {
         self.player = AVPlayer()
     }
 
-    /// 从 AVPlayerItem 的 accessLog 读实测吞吐（observedBitrate，bps）
-    /// 全程 ObjC runtime（perform）绕开 27.0 SDK 的 macOS 27+ 标注。
-    /// ⚠️ 必须主线程调用：AVPlayerItem 有线程亲和性，后台线程访问会破坏加载状态
+    /// 从 AVPlayerItem 的 accessLog 读实测吞吐（observedBitrate，bps）。
+    /// 用 KVC（value(forKey:)）而不是 perform：observedBitrate 返回 double 基础类型，
+    /// perform 会把 double 原始位重解释成对象指针 → takeUnretainedValue 对垃圾指针
+    /// retain → SIGSEGV（实测崩溃栈 swift_unknownObjectRetain @0x1）。
+    /// KVC 自动装箱成 NSNumber，全程安全；键不存在时 responds(to:) 预检。
+    /// ⚠️ 必须主线程调用：AVPlayerItem 有线程亲和性
     static func readNetworkSpeed(from item: AVPlayerItem, handler: (Double) -> Void) {
         let sel = NSSelectorFromString("accessLog")
         guard item.responds(to: sel),
-              let log = item.perform(sel)?.takeUnretainedValue(),
-              let events = log.perform(NSSelectorFromString("events"))?
-                  .takeUnretainedValue() as? [Any],
-              let event = events.last,
-              let bps = (event as AnyObject).perform(NSSelectorFromString("observedBitrate"))?
-                  .takeUnretainedValue() as? Double else {
+              let log = item.value(forKey: "accessLog") as? NSObject else {
+            handler(0)
+            return
+        }
+        let evSel = NSSelectorFromString("events")
+        guard log.responds(to: evSel),
+              let events = log.value(forKey: "events") as? [Any],
+              let event = events.last as? NSObject else {
+            handler(0)
+            return
+        }
+        let bpsSel = NSSelectorFromString("observedBitrate")
+        guard event.responds(to: bpsSel),
+              let bps = event.value(forKey: "observedBitrate") as? Double else {
             handler(0)
             return
         }
