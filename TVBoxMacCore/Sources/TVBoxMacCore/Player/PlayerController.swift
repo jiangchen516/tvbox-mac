@@ -22,32 +22,28 @@ public final class PlayerController: ObservableObject {
     private var positionKey: String?
     private var saveTask: Task<Void, Never>?
     private var stallCount: Int = 0   // 停顿看门狗计数（0.5s 一次）
+    private var lastSpeedRead: TimeInterval = 0   // 网速读取限频（5s 一次，降低对加载管线的干扰）
 
     public init() {
         self.player = AVPlayer()
     }
 
     /// 从 AVPlayerItem 的 accessLog 读实测吞吐（observedBitrate，bps）
-    /// 全程 ObjC runtime（perform），绕开 27.0 SDK 对 accessLog 的 macOS 27+ 标注
-    static func readNetworkSpeed(from item: AVPlayerItem, handler: @escaping (Double) -> Void) {
-        #if canImport(AppKit)
-        DispatchQueue.global(qos: .utility).async {
-            let sel = NSSelectorFromString("accessLog")
-            guard item.responds(to: sel),
-                  let log = item.perform(sel)?.takeUnretainedValue(),
-                  let events = log.perform(NSSelectorFromString("events"))?
-                      .takeUnretainedValue() as? [Any],
-                  let event = events.last,
-                  let bps = (event as AnyObject).perform(NSSelectorFromString("observedBitrate"))?
-                      .takeUnretainedValue() as? Double else {
-                DispatchQueue.main.async { handler(0) }
-                return
-            }
-            DispatchQueue.main.async { handler(bps) }
+    /// 全程 ObjC runtime（perform）绕开 27.0 SDK 的 macOS 27+ 标注。
+    /// ⚠️ 必须主线程调用：AVPlayerItem 有线程亲和性，后台线程访问会破坏加载状态
+    static func readNetworkSpeed(from item: AVPlayerItem, handler: (Double) -> Void) {
+        let sel = NSSelectorFromString("accessLog")
+        guard item.responds(to: sel),
+              let log = item.perform(sel)?.takeUnretainedValue(),
+              let events = log.perform(NSSelectorFromString("events"))?
+                  .takeUnretainedValue() as? [Any],
+              let event = events.last,
+              let bps = (event as AnyObject).perform(NSSelectorFromString("observedBitrate"))?
+                  .takeUnretainedValue() as? Double else {
+            handler(0)
+            return
         }
-        #else
-        handler(0)
-        #endif
+        handler(bps)
     }
 
     private func ensureObservers() {
@@ -57,42 +53,43 @@ public final class PlayerController: ObservableObject {
             forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
             queue: .main
         ) { [weak self] time in
-            self?.currentTime = time.seconds
+            guard let s = self else { return }
+            s.currentTime = time.seconds
             // d.seconds.isFinite 同时排除 invalid(NaN) 与 indefinite(inf)
             // （不用 C 函数 CMTimeIsValid：部分工具链下该 C 符号导入异常）
-            if let d = self?.player.currentItem?.asset.duration, d.seconds.isFinite {
-                self?.duration = d.seconds
+            if let d = s.player.currentItem?.asset.duration, d.seconds.isFinite {
+                s.duration = d.seconds
             }
             // 缓冲跟踪：已缓冲前沿位置 + 是否还需缓冲（屏显用）
-            if let item = self?.player.currentItem {
+            if let item = s.player.currentItem {
                 if let range = item.loadedTimeRanges.last?.timeRangeValue {
-                    self?.bufferedTime = range.start.seconds + range.duration.seconds
+                    s.bufferedTime = range.start.seconds + range.duration.seconds
                 }
-                self?.isBuffering = !item.isPlaybackLikelyToKeepUp
-                // 网速：AVPlayerItemAccessLog 的实测吞吐（bps）。
-                // accessLog 在 27.0 SDK 被标成 macOS 27+，但运行时老系统一直有——
-                // 用 ObjC runtime 调用绕开编译期标注（26/27 都可用）
-                Self.readNetworkSpeed(from: item) { [weak self] bps in
-                    self?.networkSpeed = bps
+                s.isBuffering = !item.isPlaybackLikelyToKeepUp
+                // 网速：AVPlayerItemAccessLog 的实测吞吐（bps），限频 5s 一次（降低对加载管线的干扰）
+                if CACurrentMediaTime() - s.lastSpeedRead >= 5 {
+                    s.lastSpeedRead = CACurrentMediaTime()
+                    Self.readNetworkSpeed(from: item) { [weak self] bps in
+                        self?.networkSpeed = bps
+                    }
                 }
             }
             // 停顿看门狗：seek 到未缓冲区后 AVPlayer 常停在 waiting 状态不自动恢复，
-            // 停顿超 3 秒轻推一次 play() 触发重新缓冲
-            if let s = self {
-                if s.player.timeControlStatus == .waitingToPlayAtSpecifiedRate {
-                    s.stallCount += 1
-                    if s.stallCount >= 6 && s.isPlaying {
-                        s.stallCount = 0
-                        s.player.play()
-                    }
-                } else {
+            // 停顿超 3 秒轻推一次 play() 触发重新缓冲。
+            // 只在已开始播放后（currentTime > 0）才视为停顿——初始缓冲的 waiting 是正常状态
+            if s.player.timeControlStatus == .waitingToPlayAtSpecifiedRate && s.currentTime > 0 {
+                s.stallCount += 1
+                if s.stallCount >= 6 && s.isPlaying {
                     s.stallCount = 0
+                    s.player.play()
                 }
+            } else {
+                s.stallCount = 0
             }
             // 播放失败时把 AVPlayer 的错误暴露给 UI（否则只有黑屏没提示）
-            if let err = self?.player.currentItem?.error,
-               self?.error != err.localizedDescription {
-                self?.error = err.localizedDescription
+            if let err = s.player.currentItem?.error,
+               s.error != err.localizedDescription {
+                s.error = err.localizedDescription
             }
         }
     }
