@@ -43,7 +43,12 @@ public actor ManagedAndroidSpiderClient: VodFetching {
                 do {
                     let result = try await browse(site: site, categoryValue: resolvedCategory, page: page, filter: false)
                     if result.list.isEmpty {
-                        return try await browse(site: site, categoryValue: resolvedCategory, page: page, filter: true)
+                        await resetSpider(site: site)
+                        _ = try? await categories(site: site)
+                        let retry = try await browse(site: site, categoryValue: resolvedCategory, page: page, filter: false)
+                        return retry.list.isEmpty
+                            ? try await browse(site: site, categoryValue: resolvedCategory, page: page, filter: true)
+                            : retry
                     }
                     return result
                 } catch let error as ManagedAndroidSpiderError
@@ -69,6 +74,10 @@ public actor ManagedAndroidSpiderClient: VodFetching {
                         "page": .number(Double(page))
                 ])
                 return try decodeSpiderPage(from: data, page: page, operation: "search")
+    }
+
+    private func resetSpider(site: Site) async {
+        _ = try? await call(operation: "destroy", site: site)
     }
 
     public func detail(site: Site, vodId: Int) async throws -> Vod {
@@ -121,6 +130,15 @@ public actor ManagedAndroidSpiderClient: VodFetching {
         }
         var current = value
         for _ in 0..<3 {
+            if case .string(let text) = current,
+               text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if operation == "browse" {
+                    return Data("{\"list\":[]}".utf8)
+                }
+                throw ManagedAndroidSpiderError.invalidResponse(
+                    "Bridge 返回空字符串（operation=\(operation), site=\(site.name)）"
+                )
+            }
             if case .string(let text) = current,
                let data = text.data(using: .utf8),
                let object = try? JSONSerialization.jsonObject(with: data) {
