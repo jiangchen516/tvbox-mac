@@ -4,11 +4,14 @@ import Foundation
 public actor TVBoxClient {
     private let catVod: CatVodClient
     private let spider: SpiderClient
+    private let managedAndroidSpider: ManagedAndroidSpiderClient?
     public private(set) var loadedConfigs: [LoadedConfig] = []
 
-    public init(catVod: CatVodClient? = nil, spider: SpiderClient? = nil) {
+    public init(catVod: CatVodClient? = nil, spider: SpiderClient? = nil,
+                managedAndroidSpider: ManagedAndroidSpiderClient? = nil) {
         self.catVod = catVod ?? CatVodClient()
         self.spider = spider ?? SpiderClient()
+        self.managedAndroidSpider = managedAndroidSpider
     }
 
     /// 加载配置后同步 parses/header/spider 到两个 client
@@ -36,6 +39,9 @@ public actor TVBoxClient {
 
     // MARK: - VodFetching 风格的分发（UI 直接用这些方法）
     private func client(for site: Site) -> any VodFetching {
+        if let managedAndroidSpider, site.type == 3 || site.api.lowercased().hasPrefix("csp_") {
+            return ManagedAndroidSpiderProxy(spider: managedAndroidSpider, site: site)
+        }
         // spider 站点：type 0/3，或 api 为 csp_ 前缀（TVBox 约定：api 是 spider 类名，不是 URL；
         // 实现在 site.jar / 配置级 spider 字段指向的 jar/js 里）。其余走 CatVod。
         if site.type == 0 || site.type == 3 || site.api.lowercased().hasPrefix("csp_") {
@@ -90,6 +96,16 @@ private struct CatVodProxy: VodFetching {
 
 private struct SpiderProxy: VodFetching {
     let spider: SpiderClient
+    let site: Site
+    func categories(site: Site) async throws -> [String] { try await spider.categories(site: site) }
+    func browse(site: Site, category: String?, page: Int) async throws -> VodPage { try await spider.browse(site: site, category: category, page: page) }
+    func search(site: Site, keyword: String, page: Int) async throws -> VodPage { try await spider.search(site: site, keyword: keyword, page: page) }
+    func detail(site: Site, vodId: Int) async throws -> Vod { try await spider.detail(site: site, vodId: vodId) }
+    func resolvePlayUrl(site: Site, vod: Vod, episode: Episode) async throws -> String { try await spider.resolvePlayUrl(site: site, vod: vod, episode: episode) }
+}
+
+private struct ManagedAndroidSpiderProxy: VodFetching {
+    let spider: ManagedAndroidSpiderClient
     let site: Site
     func categories(site: Site) async throws -> [String] { try await spider.categories(site: site) }
     func browse(site: Site, category: String?, page: Int) async throws -> VodPage { try await spider.browse(site: site, category: category, page: page) }
