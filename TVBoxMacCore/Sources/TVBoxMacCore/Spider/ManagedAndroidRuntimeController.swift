@@ -76,6 +76,10 @@ public actor ManagedAndroidRuntimeController {
         }
         try await waitForBoot()
         try runADB(["install", "-r", bridgeAPK.path], timeout: 120)
+        _ = try? runADB([
+            "shell", "setprop",
+            "debug.wm.disable_deprecated_target_sdk_dialog", "true"
+        ], timeout: 8)
         try runADB(["shell", "am", "start", "-n", "com.okvideomac.dexbridge/.BridgeActivity"])
         try runADB(["forward", "tcp:\(hostBridgePort)", "tcp:\(guestBridgePort)"])
         try await waitForBridgeHealth()
