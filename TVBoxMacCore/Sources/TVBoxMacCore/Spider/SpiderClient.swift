@@ -23,10 +23,12 @@ public actor SpiderClient {
 
     private var loadedSourceKey: String?
 
-    /// spider 实现地址候选：site.spider → site.jar → 配置级 spider → site.api（老约定 js 文件）。
+    /// spider 实现地址候选：site.spider → site.jar → site.api（老约定 js 文件）→ 配置级 spider。
+    /// 多配置共存时 globalSpiderURL 是第一份配置的 jar，必须排在 site.api 之后，
+    /// 否则其他配置的 js 站点（api 即 js URL）会先被别人的 jar 盖掉。
     /// 剥 ";md5;hash" 校验后缀；csp_ 类名不是地址，会被过滤。
     private func spiderURLs(for site: Site) -> [String] {
-        let candidates = [site.spider, site.jar, globalSpiderURL, site.api].compactMap { $0 }
+        let candidates = [site.spider, site.jar, site.api, globalSpiderURL].compactMap { $0 }
         var out: [String] = []
         for raw in candidates {
             let u = raw.split(separator: ";").first.map(String.init) ?? raw

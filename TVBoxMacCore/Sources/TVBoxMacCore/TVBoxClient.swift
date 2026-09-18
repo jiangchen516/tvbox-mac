@@ -34,10 +34,25 @@ public actor TVBoxClient {
     }
 
     public func loadConfigs(_ configs: [LoadedConfig]) async {
-        loadedConfigs = configs
+        // 多配置共存：每份配置的 csp_ 站点绑定【该配置自己】解析出的 spider jar。
+        // 否则全局 spiderURL 只取第一份配置的，会盖掉其他配置的 jar
+        // （实测：摸鱼配置的 qiniu jar 盖掉饭太硬的 fan.txt → Guard 站点全空）
+        var resolved = configs
+        for i in resolved.indices {
+            guard let spiderURL = resolved[i].resolvedGlobalSpiderURL() else { continue }
+            for j in resolved[i].config.sites.indices {
+                let s = resolved[i].config.sites[j]
+                let jarEmpty = s.jar == nil || s.jar?.isEmpty == true
+                let isCsp = s.api.lowercased().hasPrefix("csp_")
+                if jarEmpty && isCsp {
+                    resolved[i].config.sites[j].jar = spiderURL
+                }
+            }
+        }
+        loadedConfigs = resolved
         // 默认用第一份配置的 parses/header
         // 配置级 spider 的相对路径（"./jar/fan.txt"）先按该配置的 URL 解析成绝对 URL
-        if let first = configs.first {
+        if let first = resolved.first {
             await configure(first.config, spiderURL: first.resolvedGlobalSpiderURL())
         }
     }
