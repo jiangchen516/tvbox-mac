@@ -116,68 +116,59 @@ struct PlayerView: View {
     }
 
     private var controlBar: some View {
-        // 行 1：上一集/倍速/下一集 —— 时间/集数
-        // 行 2：进度条 —— 全屏（紧跟进度条右侧）
-        VStack(spacing: 6) {
-            HStack(spacing: 16) {
-                Button {
-                    guard currentIndex > 0, let onSwitchEpisode else { return }
-                    onSwitchEpisode(episodes[currentIndex - 1])
-                } label: {
-                    Label("上一集", systemImage: "backward.end.fill")
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.white)
-                .disabled(currentIndex == 0 || onSwitchEpisode == nil)
-                .help(currentIndex > 0 ? episodes[currentIndex - 1].title : "已是第一集")
-
-                Menu {
-                    ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0], id: \.self) { r in
-                        // %g 去掉小数点后多余的 0（1.0 → 1）
-                        Button("\(String(format: "%g", r))×") { controller.setRate(Float(r)) }
-                    }
-                } label: {
-                    Label("\(String(format: "%g", controller.rate))×", systemImage: "gauge.with.needle")
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-                .tint(.white)
-
-                Button {
-                    guard currentIndex < episodes.count - 1, let onSwitchEpisode else { return }
-                    onSwitchEpisode(episodes[currentIndex + 1])
-                } label: {
-                    Label("下一集", systemImage: "forward.end.fill")
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.white)
-                .disabled(currentIndex >= episodes.count - 1 || onSwitchEpisode == nil)
-                .help(currentIndex < episodes.count - 1 ? episodes[currentIndex + 1].title : "已是最后一集")
-
-                Spacer()
-
-                Text("\(timeString(controller.currentTime)) / \(timeString(controller.duration))")
-                    .monospacedDigit().font(.caption).foregroundStyle(.white)
-
-                Text("第 \(currentIndex + 1)/\(episodes.count) 集")
-                    .font(.caption).foregroundStyle(.white.opacity(0.7))
+        // 进度条/播放暂停/音量/画中画用 AVPlayerView 原生控制条（带缓冲段可视化）；
+        // 常驻条放：上一集/倍速/下一集 —— 全屏/时间/集数
+        HStack(spacing: 16) {
+            Button {
+                guard currentIndex > 0, let onSwitchEpisode else { return }
+                onSwitchEpisode(episodes[currentIndex - 1])
+            } label: {
+                Label("上一集", systemImage: "backward.end.fill")
             }
+            .buttonStyle(.plain)
+            .foregroundStyle(.white)
+            .disabled(currentIndex == 0 || onSwitchEpisode == nil)
+            .help(currentIndex > 0 ? episodes[currentIndex - 1].title : "已是第一集")
 
-            HStack(spacing: 12) {
-                Slider(value: Binding(
-                    get: { controller.currentTime },
-                    set: { controller.seek(to: $0) }
-                ), in: 0...max(controller.duration, 1))
-
-                Button {
-                    NSApp.keyWindow?.toggleFullScreen(nil)
-                } label: {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+            Menu {
+                ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0], id: \.self) { r in
+                    // %g 去掉小数点后多余的 0（1.0 → 1）
+                    Button("\(String(format: "%g", r))×") { controller.setRate(Float(r)) }
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(.white)
-                .help("全屏")
+            } label: {
+                Label("\(String(format: "%g", controller.rate))×", systemImage: "gauge.with.needle")
             }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .tint(.white)
+
+            Button {
+                guard currentIndex < episodes.count - 1, let onSwitchEpisode else { return }
+                onSwitchEpisode(episodes[currentIndex + 1])
+            } label: {
+                Label("下一集", systemImage: "forward.end.fill")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.white)
+            .disabled(currentIndex >= episodes.count - 1 || onSwitchEpisode == nil)
+            .help(currentIndex < episodes.count - 1 ? episodes[currentIndex + 1].title : "已是最后一集")
+
+            Spacer()
+
+            Button {
+                NSApp.keyWindow?.toggleFullScreen(nil)
+            } label: {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.white)
+            .help("全屏")
+
+            Text("\(timeString(controller.currentTime)) / \(timeString(controller.duration))")
+                .monospacedDigit().font(.caption).foregroundStyle(.white)
+
+            Text("第 \(currentIndex + 1)/\(episodes.count) 集")
+                .font(.caption).foregroundStyle(.white.opacity(0.7))
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)

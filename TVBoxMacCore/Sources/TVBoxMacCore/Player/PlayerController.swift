@@ -20,6 +20,7 @@ public final class PlayerController: ObservableObject {
     private var observersSetup: Bool = false
     private var positionKey: String?
     private var saveTask: Task<Void, Never>?
+    private var stallCount: Int = 0   // 停顿看门狗计数（0.5s 一次）
 
     public init() {
         self.player = AVPlayer()
@@ -44,6 +45,19 @@ public final class PlayerController: ObservableObject {
                     self?.bufferedTime = range.start.seconds + range.duration.seconds
                 }
                 self?.isBuffering = !item.isPlaybackLikelyToKeepUp
+            }
+            // 停顿看门狗：seek 到未缓冲区后 AVPlayer 常停在 waiting 状态不自动恢复，
+            // 停顿超 3 秒轻推一次 play() 触发重新缓冲
+            if let s = self {
+                if s.player.timeControlStatus == .waitingToPlayAtSpecifiedRate {
+                    s.stallCount += 1
+                    if s.stallCount >= 6 && s.isPlaying {
+                        s.stallCount = 0
+                        s.player.play()
+                    }
+                } else {
+                    s.stallCount = 0
+                }
             }
             // 播放失败时把 AVPlayer 的错误暴露给 UI（否则只有黑屏没提示）
             if let err = self?.player.currentItem?.error,
