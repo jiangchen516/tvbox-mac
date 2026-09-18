@@ -24,6 +24,7 @@ struct TVBoxMacApp: App {
         // 内容读共享 PlayerSession，选新的一集时更新 session 即切集，openWindow 只聚焦
         Window("播放", id: "player") {
             PlayerWindowView()
+                .environmentObject(appState)      // PlayerView 用 appState.client/historyStore（漏注入会 EnvironmentObject.error() 闪退）
                 .environmentObject(playerSession)
         }
         .windowResizability(.contentSize)
