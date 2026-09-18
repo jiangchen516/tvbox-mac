@@ -24,6 +24,8 @@ public final class PlayerController: ObservableObject {
     private var stallCount: Int = 0   // 停顿看门狗计数（0.5s 一次）
     private var lastSpeedRead: TimeInterval = 0   // 网速读取限频（5s 一次，降低对加载管线的干扰）
     private var lastBufferingState: Bool?
+    private var playStartCAC: TimeInterval = 0    // 初始加载超时检测（分段 CDN 无响应）
+    private var initialTimeoutFired: Bool = false
     private var logObservers: [NSObjectProtocol] = []
     private var statusObservation: NSKeyValueObservation?
     private var tcObservation: NSKeyValueObservation?
@@ -136,6 +138,16 @@ public final class PlayerController: ObservableObject {
                 s.error = err.localizedDescription
                 PlayerLog.append("❌ player.error: \(err.localizedDescription)")
             }
+            // 初始加载超时：15 秒内没 readyToPlay 且没缓冲到任何数据——
+            // 分段 CDN 无响应（灰产 CDN 常态），明确提示而不是无限转圈
+            if !s.initialTimeoutFired,
+               CACurrentMediaTime() - s.playStartCAC >= 15,
+               s.player.currentItem?.status != .readyToPlay,
+               s.bufferedTime == 0 {
+                s.initialTimeoutFired = true
+                PlayerLog.append("❌ 初始加载超时：15s 无数据（分段服务器无响应）")
+                s.error = "流服务器 15 秒无数据（分段 CDN 无响应），请换一集/换线路或稍后再试"
+            }
         }
     }
 
@@ -152,6 +164,8 @@ public final class PlayerController: ObservableObject {
         }
         let asset = AVURLAsset(url: url, options: opts)
         player.replaceCurrentItem(with: AVPlayerItem(asset: asset))
+        playStartCAC = CACurrentMediaTime()
+        initialTimeoutFired = false
         // 断点续播
         if let key = positionKey {
             let pos = UserDefaults.standard.double(forKey: "tvboxpos.\(key)")
