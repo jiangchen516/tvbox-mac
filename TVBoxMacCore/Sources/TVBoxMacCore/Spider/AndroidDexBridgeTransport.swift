@@ -129,8 +129,11 @@ private struct BridgeInvokeRequest: Encodable {
             arguments = []
         }
         monitorsAuthorization = false
-        interactionID = nil
-        interactionKind = nil
+        // 注意：Android 的 optString 会把 JSON null 变成字符串 "null"（非空），
+        // 被误判为 interactive 请求 → 走交互生命周期 → 409 "no longer current"。
+        // 必须编码为空字符串。
+        interactionID = ""
+        interactionKind = ""
         providerOwnerID = "tvboxmac-default:\(request.site.id)"
     }
 
