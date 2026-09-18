@@ -114,16 +114,22 @@ public actor ManagedAndroidSpiderClient: VodFetching {
         guard let value = response.data else {
             throw ManagedAndroidSpiderError.invalidResponse("缺少可解码 data（operation=\(operation), site=\(site.name)）")
         }
-          if case .string(let text) = value,
-              let data = text.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data),
-              JSONSerialization.isValidJSONObject(object) {
-                return try JSONSerialization.data(withJSONObject: object)
+        var current = value
+        for _ in 0..<3 {
+            if case .string(let text) = current,
+               let data = text.data(using: .utf8),
+               let object = try? JSONSerialization.jsonObject(with: data) {
+                current = Self.jsonValue(from: object)
+                continue
+            }
+            break
         }
-        guard JSONSerialization.isValidJSONObject(value.asAny) else {
-            throw ManagedAndroidSpiderError.invalidResponse("data 不是 JSON 对象（operation=\(operation), site=\(site.name)）")
+        guard JSONSerialization.isValidJSONObject(current.asAny) else {
+            throw ManagedAndroidSpiderError.invalidResponse(
+                "data 不是 JSON 容器（operation=\(operation), site=\(site.name), value=\(current)）"
+            )
         }
-        return try JSONSerialization.data(withJSONObject: value.asAny)
+        return try JSONSerialization.data(withJSONObject: current.asAny)
     }
 
     private func decode<Response: Decodable>(_ type: Response.Type, from data: Data) throws -> Response {
@@ -171,6 +177,20 @@ public actor ManagedAndroidSpiderClient: VodFetching {
         } catch {
             throw ManagedAndroidSpiderError.invalidResponse("请求参数编码失败")
         }
+    }
+
+    private static func jsonValue(from value: Any) -> JSONValue {
+        if value is NSNull { return .null }
+        if let value = value as? String { return .string(value) }
+        if let value = value as? NSNumber {
+            if CFGetTypeID(value) == CFBooleanGetTypeID() { return .bool(value.boolValue) }
+            return .number(value.doubleValue)
+        }
+        if let value = value as? [Any] { return .array(value.map(jsonValue(from:))) }
+        if let value = value as? [String: Any] {
+            return .object(value.mapValues(jsonValue(from:)))
+        }
+        return .null
     }
 
     private func decodeCategoryResponse(from data: Data) throws -> CategoryResponse {
