@@ -29,7 +29,15 @@ public actor AndroidDexBridgeHTTPTransport: AndroidDexBridgeTransport {
         guard (200..<300).contains(status) else {
             throw AndroidDexBridgeTransportError.httpStatus(status, String(data: data, encoding: .utf8) ?? "")
         }
-        let bridgeResponse = try JSONDecoder().decode(BridgeInvokeResponse.self, from: data)
+        let bridgeResponse: BridgeInvokeResponse
+        do {
+            bridgeResponse = try JSONDecoder().decode(BridgeInvokeResponse.self, from: data)
+        } catch {
+            let preview = String(data: data.prefix(800), encoding: .utf8) ?? "<binary>"
+            throw AndroidDexBridgeTransportError.invalidResponse(
+                "JSON 解码失败（HTTP=\(status), bytes=\(data.count)）：\(error.localizedDescription)；响应前缀=\(preview)"
+            )
+        }
         return AndroidDexBridgeResponse(
             id: request.id,
             ok: bridgeResponse.ok,

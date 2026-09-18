@@ -38,13 +38,25 @@ public actor ManagedAndroidSpiderClient: VodFetching {
     }
 
     public func browse(site: Site, category: String?, page: Int) async throws -> VodPage {
-                let resolvedCategory = categoryIDs[site.id]?[category ?? ""] ?? category ?? ""
-                return try await callDecoded(operation: "browse", site: site,
-                              arguments: [
-                                                                "category": .string(resolvedCategory),
-                                "page": .number(Double(page))
-                              ])
+                let displayCategory = category ?? ""
+                let resolvedCategory = categoryIDs[site.id]?[displayCategory] ?? displayCategory
+                do {
+                        return try await browse(site: site, categoryValue: resolvedCategory, page: page)
+                } catch let error as ManagedAndroidSpiderError
+                                        where displayCategory != resolvedCategory
+                                        && error.localizedDescription.localizedCaseInsensitiveContains("category invalid") {
+                        // Some legacy spiders expose names instead of numeric type IDs.
+                        return try await browse(site: site, categoryValue: displayCategory, page: page)
+                }
     }
+
+        private func browse(site: Site, categoryValue: String, page: Int) async throws -> VodPage {
+                try await callDecoded(operation: "browse", site: site,
+                                                            arguments: [
+                                                                "category": .string(categoryValue),
+                                                                "page": .number(Double(page))
+                                                            ])
+        }
 
     public func search(site: Site, keyword: String, page: Int) async throws -> VodPage {
         try await callDecoded(operation: "search", site: site,
@@ -100,7 +112,7 @@ public actor ManagedAndroidSpiderClient: VodFetching {
             throw ManagedAndroidSpiderError.bridge(response.error ?? "未知错误")
         }
         guard let value = response.data else {
-            throw ManagedAndroidSpiderError.invalidResponse("缺少可解码 data")
+            throw ManagedAndroidSpiderError.invalidResponse("缺少可解码 data（operation=\(operation), site=\(site.name)）")
         }
           if case .string(let text) = value,
               let data = text.data(using: .utf8),
@@ -109,7 +121,7 @@ public actor ManagedAndroidSpiderClient: VodFetching {
                 return try JSONSerialization.data(withJSONObject: object)
         }
         guard JSONSerialization.isValidJSONObject(value.asAny) else {
-            throw ManagedAndroidSpiderError.invalidResponse("data 不是 JSON 对象")
+            throw ManagedAndroidSpiderError.invalidResponse("data 不是 JSON 对象（operation=\(operation), site=\(site.name)）")
         }
         return try JSONSerialization.data(withJSONObject: value.asAny)
     }
@@ -118,7 +130,10 @@ public actor ManagedAndroidSpiderClient: VodFetching {
         do {
             return try JSONDecoder().decode(type, from: data)
         } catch {
-            throw ManagedAndroidSpiderError.invalidResponse(error.localizedDescription)
+            let preview = String(data: data.prefix(800), encoding: .utf8) ?? "<binary>"
+            throw ManagedAndroidSpiderError.invalidResponse(
+                "JSON 解码失败（operation=\(type), bytes=\(data.count)）：\(error.localizedDescription)；响应前缀=\(preview)"
+            )
         }
     }
 
