@@ -338,6 +338,33 @@ public struct LoadedConfig: Codable, Sendable, Identifiable {
         self.config = config
         self.enabled = enabled
     }
+
+    /// 配置级 spider/jar 地址 → 绝对 URL：
+    /// - 剥 ";md5;hash" 校验后缀
+    /// - 相对路径（"./jar/fan.txt"）相对配置 URL 的目录解析成绝对 URL
+    ///   （实测：饭太硬原版配置的 config.spider 就是相对路径，不解析则 Bridge 下载失败）
+    public func resolvedGlobalSpiderURL() -> String? {
+        resolveSpiderURL(config.spider, against: url)
+    }
+}
+
+/// 解析配置级 spider/jar 地址：剥 ";md5;hash" 后缀；相对路径相对配置 URL 的目录解析
+public func resolveSpiderURL(_ raw: String?, against baseURLString: String?) -> String? {
+    guard var raw, !raw.isEmpty else { return nil }
+    if let semi = raw.range(of: ";md5;") { raw = String(raw[..<semi.lowerBound]) }
+    raw = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !raw.isEmpty else { return nil }
+    let lower = raw.lowercased()
+    if lower.hasPrefix("http://") || lower.hasPrefix("https://") { return raw }
+    // 相对路径：相对配置 URL 的目录解析
+    guard let baseStr = baseURLString,
+          let base = URL(string: baseStr),
+          let scheme = base.scheme,
+          scheme == "http" || scheme == "https" else { return raw }
+    var rel = raw
+    while rel.hasPrefix("./") { rel = String(rel.dropFirst(2)) }
+    let resolved = URL(string: rel, relativeTo: URL(string: base.absoluteString)!)
+    return resolved?.absoluteString
 }
 
 // MARK: - CatVod 数据

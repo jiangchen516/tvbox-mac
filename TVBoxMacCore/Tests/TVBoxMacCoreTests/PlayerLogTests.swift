@@ -26,6 +26,27 @@ final class PlayerLogTests: XCTestCase {
         XCTAssertEqual(PlayerLog.kv(KVStub(), "num") as? Int, 7)
         XCTAssertEqual(PlayerLog.kv(KVStub(), "text") as? String, "hi")
     }
+
+    // 实测：饭太硬原版配置的 config.spider 是相对路径 "./jar/fan.txt;md5;..."，
+    // 不解析则 Bridge 下载 jar 失败（Expected URL scheme ... no scheme）
+    func testResolveSpiderURL() {
+        let fty = "https://raw.githubusercontent.com/qist/tvbox/master/fty.json"
+        // 相对路径 + md5 后缀 → 绝对 URL、剥 md5
+        XCTAssertEqual(
+            resolveSpiderURL("./jar/fan.txt;md5;dab654f794a271c3d7a33d18acfbfa95", against: fty),
+            "https://raw.githubusercontent.com/qist/tvbox/master/jar/fan.txt")
+        // 无 "./" 前缀的相对路径同样解析
+        XCTAssertEqual(resolveSpiderURL("jar/fan.txt", against: fty),
+                       "https://raw.githubusercontent.com/qist/tvbox/master/jar/fan.txt")
+        // 绝对 URL 原样返回
+        XCTAssertEqual(resolveSpiderURL("https://abs.example/x.jar", against: "https://cfg.example/c.json"),
+                       "https://abs.example/x.jar")
+        // 无 base 时保持原样（本地文件导入场景）
+        XCTAssertEqual(resolveSpiderURL("./jar/x.jar", against: nil), "./jar/x.jar")
+        // 空值 → nil
+        XCTAssertNil(resolveSpiderURL(nil, against: fty))
+        XCTAssertNil(resolveSpiderURL("", against: fty))
+    }
 }
 
 /// 测试用 KVC 兼容对象

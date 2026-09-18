@@ -15,15 +15,18 @@ public actor TVBoxClient {
     }
 
     /// 加载配置后同步 parses/header/spider 到两个 client
-    public func configure(_ config: TVBoxConfig) async {
+    /// - Parameter spiderURL: 配置级 spider 地址（已解析为绝对 URL、剥 md5 后缀）；
+    ///   传 nil 时退回 config.spider 原文
+    public func configure(_ config: TVBoxConfig, spiderURL: String? = nil) async {
         await catVod.setParses(config.parses)
         await spider.setParses(config.parses)
         let h = HeaderParser.parse(config.header)
         await catVod.setGlobalHeader(h)
         await spider.setGlobalHeader(h)
-        // 配置级 spider 地址（jar/js），spider 站点用它找实现
-        await spider.setGlobalSpiderURL(config.spider)
-        await managedAndroidSpider?.setGlobalSpiderURL(config.spider)
+        // 配置级 spider 地址（jar/js），spider 站点用它找实现。
+        // 相对路径（"./jar/fan.txt"）必须先解析成绝对 URL，否则 Bridge 下载 jar 失败
+        await spider.setGlobalSpiderURL(spiderURL ?? config.spider)
+        await managedAndroidSpider?.setGlobalSpiderURL(spiderURL ?? config.spider)
     }
 
     public func allSites() -> [Site] {
@@ -33,8 +36,9 @@ public actor TVBoxClient {
     public func loadConfigs(_ configs: [LoadedConfig]) async {
         loadedConfigs = configs
         // 默认用第一份配置的 parses/header
+        // 配置级 spider 的相对路径（"./jar/fan.txt"）先按该配置的 URL 解析成绝对 URL
         if let first = configs.first {
-            await configure(first.config)
+            await configure(first.config, spiderURL: first.resolvedGlobalSpiderURL())
         }
     }
 
