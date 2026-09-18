@@ -20,6 +20,7 @@ public enum ManagedAndroidSpiderError: LocalizedError, Sendable {
 public actor ManagedAndroidSpiderClient: VodFetching {
     private let transport: any AndroidDexBridgeTransport
     private var globalSpiderURL: String?
+    private var categoryIDs: [String: [String: String]] = [:]
 
     public init(transport: any AndroidDexBridgeTransport) {
         self.transport = transport
@@ -31,14 +32,16 @@ public actor ManagedAndroidSpiderClient: VodFetching {
 
     public func categories(site: Site) async throws -> [String] {
         let data = try await call(operation: "categories", site: site)
-        let response = try decode(BridgeCategoriesResponse.self, from: data)
-        return response.categories
+        let response = try decodeCategoryResponse(from: data)
+        categoryIDs[site.id] = response.ids
+        return response.names
     }
 
     public func browse(site: Site, category: String?, page: Int) async throws -> VodPage {
-        try await callDecoded(operation: "browse", site: site,
+                let resolvedCategory = categoryIDs[site.id]?[category ?? ""] ?? category ?? ""
+                return try await callDecoded(operation: "browse", site: site,
                               arguments: [
-                                "category": .string(category ?? ""),
+                                                                "category": .string(resolvedCategory),
                                 "page": .number(Double(page))
                               ])
     }
@@ -96,9 +99,17 @@ public actor ManagedAndroidSpiderClient: VodFetching {
         guard response.ok else {
             throw ManagedAndroidSpiderError.bridge(response.error ?? "未知错误")
         }
-        guard let value = response.data,
-              JSONSerialization.isValidJSONObject(value.asAny) else {
+        guard let value = response.data else {
             throw ManagedAndroidSpiderError.invalidResponse("缺少可解码 data")
+        }
+          if case .string(let text) = value,
+              let data = text.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              JSONSerialization.isValidJSONObject(object) {
+                return try JSONSerialization.data(withJSONObject: object)
+        }
+        guard JSONSerialization.isValidJSONObject(value.asAny) else {
+            throw ManagedAndroidSpiderError.invalidResponse("data 不是 JSON 对象")
         }
         return try JSONSerialization.data(withJSONObject: value.asAny)
     }
@@ -118,10 +129,38 @@ public actor ManagedAndroidSpiderClient: VodFetching {
             throw ManagedAndroidSpiderError.invalidResponse("请求参数编码失败")
         }
     }
+
+    private func decodeCategoryResponse(from data: Data) throws -> CategoryResponse {
+            let object = try JSONSerialization.jsonObject(with: data)
+            if let root = object as? [String: Any],
+               let categories = root["categories"] as? [String] {
+                return CategoryResponse(names: categories, ids: Dictionary(uniqueKeysWithValues: categories.map { ($0, $0) }))
+            }
+            let root = object as? [String: Any] ?? [:]
+            let rawClasses = (root["class"] as? [[String: Any]])
+                ?? (root["classes"] as? [[String: Any]])
+                ?? []
+            let pairs = rawClasses.compactMap { item -> (String, String)? in
+                let name = (item["type_name"] as? String) ?? (item["name"] as? String)
+                let id: String?
+                if let value = item["type_id"] as? NSNumber { id = value.stringValue }
+                else { id = item["type_id"] as? String }
+                guard let name, !name.isEmpty, let id, !id.isEmpty else { return nil }
+                return (name, id)
+            }
+            guard !pairs.isEmpty else {
+                throw ManagedAndroidSpiderError.invalidResponse("分类响应缺少 class/type_id/type_name")
+            }
+        return CategoryResponse(
+            names: pairs.map(\.0),
+            ids: Dictionary(uniqueKeysWithValues: pairs)
+        )
+    }
 }
 
-private struct BridgeCategoriesResponse: Decodable {
-    let categories: [String]
+private struct CategoryResponse {
+    let names: [String]
+    let ids: [String: String]
 }
 
 private struct BridgePlayResponse: Decodable {
