@@ -26,8 +26,13 @@ struct DetailView: View {
             }
             // 播放器内嵌覆盖（不走嵌套 sheet：macOS 上 sheet 里再开 sheet 常静默失败）
             if let ep = playingEpisode {
+                let idx = episodes.firstIndex(where: { $0.id == ep.id }) ?? 0
                 PlayerView(site: site, vod: fullVod ?? vod, episode: ep,
-                           onClose: { playingEpisode = nil })
+                           onClose: { playingEpisode = nil },
+                           episodes: episodes,
+                           currentIndex: idx,
+                           onSwitchEpisode: { playingEpisode = $0 })
+                    .id(ep.id)   // 切集时重建播放器（重新解析地址）
                     .background(Color.black)
                     .transition(.opacity)
             }

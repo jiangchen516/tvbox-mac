@@ -7,14 +7,15 @@ import SwiftUI
 
 /// 直接包 AVKit 的 AppKit 视图 AVPlayerView（ObjC），
 /// 绕开 VideoPlayer 背后的 _AVKit_SwiftUI 框架——实测该框架的 Swift 泛型元数据
-/// 在「用 27.0 SDK 编译、跑在 macOS 26.6.2」的组合下 initClassMetadata 直接 abort
+/// 在「用 27.0 SDK 编译、跑在 macOS 26.6.2」的组合下 initClassMetadata 直接 abort。
+/// controlsStyle 用 .default：原生控制条自带 播放/暂停、拖进度、音量、全屏、画中画
 struct PlayerVideoView: NSViewRepresentable {
     let player: AVPlayer
 
     func makeNSView(context: Context) -> AVPlayerView {
         let v = AVPlayerView()
         v.player = player
-        v.controlsStyle = .none   // 控制条用我们自己的
+        v.controlsStyle = .default
         return v
     }
 
@@ -32,12 +33,15 @@ struct PlayerView: View {
     let episode: Episode
     // 详情页内嵌播放时传回调关闭（避免嵌套 sheet 在 macOS 上静默失败）
     var onClose: (() -> Void)?
+    // 上一集/下一集（原生控制条没有；由详情页传入）
+    var episodes: [Episode] = []
+    var currentIndex: Int = 0
+    var onSwitchEpisode: ((Episode) -> Void)?
 
     @StateObject private var controller = PlayerController()
     @State private var resolving: Bool = true
     @State private var playUrl: URL?
     @State private var resolveError: String?
-    @State private var showControls: Bool = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -87,7 +91,6 @@ struct PlayerView: View {
         } else if let url = playUrl {
             PlayerVideoView(player: controller.player)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .onTapGesture { showControls.toggle() }
                 .overlay(alignment: .bottom) {
                     // 播放失败（黑屏）时显示 AVPlayer 的错误
                     if let err = controller.error {
@@ -117,36 +120,48 @@ struct PlayerView: View {
     }
 
     private var controlBar: some View {
+        // 播放/暂停、拖进度、音量、全屏、画中画都在 AVPlayerView 原生控制条里；
+        // 这里只放原生没有的：上一集/下一集、倍速
         HStack(spacing: 16) {
             Button {
-                controller.togglePlayPause()
+                guard currentIndex > 0, let onSwitchEpisode else { return }
+                onSwitchEpisode(episodes[currentIndex - 1])
             } label: {
-                Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.title2)
+                Label("上一集", systemImage: "backward.end.fill")
             }
             .buttonStyle(.plain)
             .foregroundStyle(.white)
-
-            Slider(value: Binding(
-                get: { controller.currentTime },
-                set: { controller.seek(to: $0) }
-            ), in: 0...max(controller.duration, 1))
-            .frame(maxWidth: 500)
-
-            Text(timeString(controller.currentTime))
-                .monospacedDigit().font(.caption).foregroundStyle(.white)
+            .disabled(currentIndex == 0 || onSwitchEpisode == nil)
+            .help(currentIndex > 0 ? episodes[currentIndex - 1].title : "已是第一集")
 
             Menu {
-                ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { r in
+                ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0], id: \.self) { r in
                     Button("\(r)×") { controller.setRate(Float(r)) }
                 }
             } label: {
-                Text("\(controller.rate)×").font(.caption).foregroundStyle(.white)
+                Label("\(controller.rate)×", systemImage: "gauge.with.needle")
             }
             .menuStyle(.borderlessButton)
+            .fixedSize()
             .tint(.white)
+
+            Button {
+                guard currentIndex < episodes.count - 1, let onSwitchEpisode else { return }
+                onSwitchEpisode(episodes[currentIndex + 1])
+            } label: {
+                Label("下一集", systemImage: "forward.end.fill")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.white)
+            .disabled(currentIndex >= episodes.count - 1 || onSwitchEpisode == nil)
+            .help(currentIndex < episodes.count - 1 ? episodes[currentIndex + 1].title : "已是最后一集")
+
+            Spacer()
+            Text("第 \(currentIndex + 1)/\(episodes.count) 集")
+                .font(.caption).foregroundStyle(.white.opacity(0.7))
         }
-        .padding()
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
         .background(.black.opacity(0.5))
         .onAppear { controller.startAutoSave() }
         .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { _ in
@@ -179,12 +194,6 @@ struct PlayerView: View {
             resolving = false
         }
     }
-
-    private func timeString(_ t: Double) -> String {
-        guard t.isFinite, t >= 0 else { return "0:00" }
-        let s = Int(t)
-        return String(format: "%d:%02d:%02d", s / 3600, (s % 3600) / 60, s % 60)
-    }
 }
 #else
 // 非 AVKit 平台兜底视图（Linux CI 过编译用）
@@ -193,6 +202,9 @@ struct PlayerView: View {
     let vod: Vod
     let episode: Episode
     var onClose: (() -> Void)?
+    var episodes: [Episode] = []
+    var currentIndex: Int = 0
+    var onSwitchEpisode: ((Episode) -> Void)?
 
     var body: some View {
         VStack(spacing: 12) {
