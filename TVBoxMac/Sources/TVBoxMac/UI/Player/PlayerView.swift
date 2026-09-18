@@ -72,6 +72,21 @@ struct PlayerView: View {
         } else if let url = playUrl {
             PlayerVideoView(player: controller.player)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay(alignment: .topTrailing) {
+                    // 缓冲屏显：画面右上角
+                    HStack(spacing: 4) {
+                        if controller.isBuffering {
+                            ProgressView().controlSize(.small)
+                            Text("缓冲中…")
+                        } else {
+                            Text("已缓冲 \(timeString(controller.bufferedTime))")
+                        }
+                    }
+                    .font(.caption).foregroundStyle(.white)
+                    .padding(6)
+                    .background(.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+                    .padding(8)
+                }
                 .overlay(alignment: .bottom) {
                     // 播放失败（黑屏）时显示 AVPlayer 的错误
                     if let err = controller.error {
@@ -101,71 +116,68 @@ struct PlayerView: View {
     }
 
     private var controlBar: some View {
-        // 播放/暂停、拖进度、音量、画中画在 AVPlayerView 原生控制条里；
-        // 这里放：上一集/下一集、倍速、屏显（时间/缓冲）、全屏
-        HStack(spacing: 16) {
-            Button {
-                guard currentIndex > 0, let onSwitchEpisode else { return }
-                onSwitchEpisode(episodes[currentIndex - 1])
-            } label: {
-                Label("上一集", systemImage: "backward.end.fill")
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.white)
-            .disabled(currentIndex == 0 || onSwitchEpisode == nil)
-            .help(currentIndex > 0 ? episodes[currentIndex - 1].title : "已是第一集")
-
-            Menu {
-                ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0], id: \.self) { r in
-                    // %g 去掉小数点后多余的 0（1.0 → 1）
-                    Button("\(String(format: "%g", r))×") { controller.setRate(Float(r)) }
+        // 行 1：上一集/倍速/下一集 —— 时间/集数
+        // 行 2：进度条 —— 全屏（紧跟进度条右侧）
+        VStack(spacing: 6) {
+            HStack(spacing: 16) {
+                Button {
+                    guard currentIndex > 0, let onSwitchEpisode else { return }
+                    onSwitchEpisode(episodes[currentIndex - 1])
+                } label: {
+                    Label("上一集", systemImage: "backward.end.fill")
                 }
-            } label: {
-                Label("\(String(format: "%g", controller.rate))×", systemImage: "gauge.with.needle")
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .tint(.white)
+                .buttonStyle(.plain)
+                .foregroundStyle(.white)
+                .disabled(currentIndex == 0 || onSwitchEpisode == nil)
+                .help(currentIndex > 0 ? episodes[currentIndex - 1].title : "已是第一集")
 
-            Button {
-                guard currentIndex < episodes.count - 1, let onSwitchEpisode else { return }
-                onSwitchEpisode(episodes[currentIndex + 1])
-            } label: {
-                Label("下一集", systemImage: "forward.end.fill")
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.white)
-            .disabled(currentIndex >= episodes.count - 1 || onSwitchEpisode == nil)
-            .help(currentIndex < episodes.count - 1 ? episodes[currentIndex + 1].title : "已是最后一集")
+                Menu {
+                    ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0], id: \.self) { r in
+                        // %g 去掉小数点后多余的 0（1.0 → 1）
+                        Button("\(String(format: "%g", r))×") { controller.setRate(Float(r)) }
+                    }
+                } label: {
+                    Label("\(String(format: "%g", controller.rate))×", systemImage: "gauge.with.needle")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .tint(.white)
 
-            Spacer()
+                Button {
+                    guard currentIndex < episodes.count - 1, let onSwitchEpisode else { return }
+                    onSwitchEpisode(episodes[currentIndex + 1])
+                } label: {
+                    Label("下一集", systemImage: "forward.end.fill")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.white)
+                .disabled(currentIndex >= episodes.count - 1 || onSwitchEpisode == nil)
+                .help(currentIndex < episodes.count - 1 ? episodes[currentIndex + 1].title : "已是最后一集")
 
-            // 屏显：当前时间/总时长 + 缓冲进度
-            VStack(alignment: .trailing, spacing: 2) {
+                Spacer()
+
                 Text("\(timeString(controller.currentTime)) / \(timeString(controller.duration))")
                     .monospacedDigit().font(.caption).foregroundStyle(.white)
-                HStack(spacing: 4) {
-                    if controller.isBuffering {
-                        ProgressView().controlSize(.mini)
-                        Text("缓冲中…").font(.caption2).foregroundStyle(.white.opacity(0.7))
-                    } else {
-                        Text("已缓冲 \(timeString(controller.bufferedTime))")
-                            .font(.caption2).foregroundStyle(.white.opacity(0.7))
-                    }
+
+                Text("第 \(currentIndex + 1)/\(episodes.count) 集")
+                    .font(.caption).foregroundStyle(.white.opacity(0.7))
+            }
+
+            HStack(spacing: 12) {
+                Slider(value: Binding(
+                    get: { controller.currentTime },
+                    set: { controller.seek(to: $0) }
+                ), in: 0...max(controller.duration, 1))
+
+                Button {
+                    NSApp.keyWindow?.toggleFullScreen(nil)
+                } label: {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
                 }
+                .buttonStyle(.plain)
+                .foregroundStyle(.white)
+                .help("全屏")
             }
-
-            Button {
-                NSApp.keyWindow?.toggleFullScreen(nil)
-            } label: {
-                Image(systemName: "arrow.up.left.and.arrow.down.right")
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.white)
-            .help("全屏")
-
-            Text("第 \(currentIndex + 1)/\(episodes.count) 集")
-                .font(.caption).foregroundStyle(.white.opacity(0.7))
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
