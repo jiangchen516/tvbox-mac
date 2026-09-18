@@ -141,8 +141,14 @@ public actor ManagedAndroidSpiderClient: VodFetching {
         for _ in 0..<3 {
             if case .string(let text) = current,
                text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                // 空串 = spider 正常返回但没有数据。对 csp_ 站点，最常见原因是
+                // 配置的 spider jar 里没有这个 api 类（jar 版本与源不匹配/失效），
+                // 或该源需要 ext 而站点未提供——给用户有指导性的错误而不是裸"空字符串"
+                let hint = site.api.lowercased().hasPrefix("csp_")
+                    ? "该源的 spider jar 里可能没有 \(site.api) 类（jar 版本不匹配或已失效），或此源需要 ext 配置。请换线路/换配置试试"
+                    : "源返回了空数据（可能已失效）"
                 throw ManagedAndroidSpiderError.invalidResponse(
-                    "Bridge 返回空字符串（operation=\(operation), site=\(site.name), api=\(site.api), jar=\(jarDescription)）"
+                    "Bridge 返回空数据：\(hint)（operation=\(operation), site=\(site.name), api=\(site.api), jar=\(jarDescription.prefix(80))）"
                 )
             }
             if case .string(let text) = current,
