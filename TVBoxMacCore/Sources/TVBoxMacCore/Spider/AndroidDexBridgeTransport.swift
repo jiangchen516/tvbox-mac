@@ -95,7 +95,7 @@ private struct BridgeInvokeRequest: Encodable {
             arguments = [
                 request.arguments["category"] ?? .string(""),
                 request.arguments["page"].map(Self.stringValue) ?? .string("1"),
-                .bool(true),
+                request.arguments["filter"] ?? .bool(false),
                 .object([:])
             ]
         case "search":

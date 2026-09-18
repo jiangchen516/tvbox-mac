@@ -41,19 +41,24 @@ public actor ManagedAndroidSpiderClient: VodFetching {
                 let displayCategory = category ?? ""
                 let resolvedCategory = categoryIDs[site.id]?[displayCategory] ?? displayCategory
                 do {
-            return try await browse(site: site, categoryValue: resolvedCategory, page: page)
+                    let result = try await browse(site: site, categoryValue: resolvedCategory, page: page, filter: false)
+                    if result.list.isEmpty {
+                        return try await browse(site: site, categoryValue: resolvedCategory, page: page, filter: true)
+                    }
+                    return result
                 } catch let error as ManagedAndroidSpiderError
                                         where displayCategory != resolvedCategory
                                         && error.localizedDescription.localizedCaseInsensitiveContains("category invalid") {
                         // Some legacy spiders expose names instead of numeric type IDs.
-                        return try await browse(site: site, categoryValue: displayCategory, page: page)
+                        return try await browse(site: site, categoryValue: displayCategory, page: page, filter: false)
                 }
     }
 
-        private func browse(site: Site, categoryValue: String, page: Int) async throws -> VodPage {
+                private func browse(site: Site, categoryValue: String, page: Int, filter: Bool) async throws -> VodPage {
                 let data = try await call(operation: "browse", site: site, arguments: [
                         "category": .string(categoryValue),
-                        "page": .number(Double(page))
+                        "page": .number(Double(page)),
+                        "filter": .bool(filter)
                 ])
                 return try decodeSpiderPage(from: data, page: page, operation: "browse")
         }
