@@ -132,9 +132,19 @@ public actor ManagedAndroidSpiderClient: VodFetching {
         }
         // Bridge 返回的地址指向安卓侧 loopback（guest:9978）；宿主机通过 adb 端口转发
         // （host 19978 → guest 9978）访问——改写为主机侧端口，否则连不上（实测 -1004）
-        let hostPlayURL = response.url.replacingOccurrences(
+        var hostPlayURL = response.url.replacingOccurrences(
             of: "127.0.0.1:\(guestProxyPort)",
             with: "127.0.0.1:\(hostProxyPort)")
+        // FongMi 播放地址可能带 @标记后缀（url@线路名@集数序号）——剥掉，
+        // 否则 CDN 看到畸形路径返回 403（手机端 TVBox 会剥）
+        if let at = hostPlayURL.firstIndex(of: "@") {
+            let candidate = String(hostPlayURL[..<at])
+            let low = candidate.lowercased()
+            if low.contains(".m3u8") || low.contains(".mp4") {
+                PlayerLog.append("▶ 剥 @后缀: \(hostPlayURL.prefix(90)) → \(candidate.prefix(90))")
+                hostPlayURL = candidate
+            }
+        }
         PlayerLog.append("▶ play URL 改写: \(response.url.prefix(80)) → \(hostPlayURL.prefix(80))")
         return hostPlayURL
     }
