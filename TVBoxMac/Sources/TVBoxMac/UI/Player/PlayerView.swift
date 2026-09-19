@@ -83,6 +83,9 @@ struct PlayerView: View {
     // 无边框 + 屏幕尺寸 + 隐藏菜单栏/Dock
     @State private var isFullscreen: Bool = false
     @State private var savedFrame: NSRect?
+    // 本地事件监听器：AVPlayerView 的内部子视图会先吃掉鼠标事件，
+    // mouseDown 覆盖/手势都收不到双击（实测）——事件分发前拦截最可靠
+    @State private var dblClickMonitor: Any?
 
     var body: some View {
         // 控制条在画面下方折叠显隐：显示时画面略缩，隐藏时画面占满——
@@ -112,6 +115,18 @@ struct PlayerView: View {
         .onExitCommand {
             // Esc：全屏时退出全屏
             if isFullscreen { exitFullscreen() }
+        }
+        .onAppear {
+            dblClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { event in
+                // 播放器窗口内的双击 → 切换全屏（拦截，不再下发给 AVPlayerView）
+                guard event.clickCount >= 2, event.window === hostingWindow else { return event }
+                DispatchQueue.main.async { toggleFullscreen() }
+                return nil
+            }
+        }
+        .onDisappear {
+            if let m = dblClickMonitor { NSEvent.removeMonitor(m) }
+            dblClickMonitor = nil
         }
         .onAppear {
             let key = "\(site.id)#\(vod.vod_id)#\(episode.group)#\(episode.title)"
