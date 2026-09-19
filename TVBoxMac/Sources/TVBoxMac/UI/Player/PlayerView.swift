@@ -26,6 +26,7 @@ struct PlayerVideoView: NSViewRepresentable {
 
 struct PlayerView: View {
     @EnvironmentObject var appState: AppState
+    @EnvironmentObject private var playerSession: PlayerSession
 
     let site: Site
     let vod: Vod
@@ -74,6 +75,11 @@ struct PlayerView: View {
             controller.setPositionKey(key)
             startResolve()
             showControls()
+        }
+        .onChange(of: controller.error) { err in
+            // 播放已开始但 CDN 失败（如区域拒绝/无资源）→ 同一集自动换线路
+            guard err != nil, !resolving else { return }
+            Task { await tryNextLine() }
         }
         .onDisappear {
             controlsIdleTask?.cancel()
@@ -258,9 +264,43 @@ struct PlayerView: View {
             } catch {
                 PlayerLog.append("❌ 解析失败: \(error.localizedDescription)")
                 resolveError = "解析失败: \(error.localizedDescription)"
+                // 同一集自动换下一组线路
+                await tryNextLine()
             }
             resolving = false
         }
+    }
+
+    /// 播放失败自动换线路：同一集（按组内位置）依次尝试其余播放组；
+    /// 全部失败 → 显示无法播放
+    private func tryNextLine() async {
+        let groups = vod.playGroups
+        guard groups.count > 1,
+              let pos = episodes.firstIndex(where: { $0.id == episode.id }),
+              let gIdx = groups.firstIndex(of: episode.group) else {
+            resolveError = "无法播放：\(resolveError ?? "解析失败")"
+            return
+        }
+        for offset in 1..<groups.count {
+            let g = groups[(gIdx + offset) % groups.count]
+            guard g != episode.group else { break }
+            let list = vod.episodes(group: g)
+            guard pos < list.count else { continue }
+            let cand = list[pos]
+            guard cand.isDirectMedia else { continue }
+            PlayerLog.append("⇄ 线路[\(episode.group)]失败，尝试[\(g)] \(cand.title)")
+            do {
+                // 先试解析，成功才切（切换会重建播放器并自动播放）
+                _ = try await appState.client.resolvePlayUrl(site: site, vod: vod, episode: cand)
+                playerSession.payload?.episode = cand
+                PlayerLog.append("⇄ 已切换到线路[\(g)]")
+                return
+            } catch {
+                PlayerLog.append("⇄ 线路[\(g)]也失败: \(error.localizedDescription.prefix(90))")
+            }
+        }
+        resolveError = "无法播放：所有线路均失败"
+        PlayerLog.append("❌ 同一集在所有线路均失败（\(groups.count) 组）")
     }
 }
 #else

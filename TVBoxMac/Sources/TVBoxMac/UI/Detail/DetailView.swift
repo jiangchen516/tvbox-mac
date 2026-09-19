@@ -114,16 +114,26 @@ struct DetailView: View {
                         openWindow(id: "player")
                     } label: {
                         Text(ep.title)
-                            .font(.callout)
+                            .font(.callout.weight(isPlaying(ep) ? .semibold : .regular))
                             .lineLimit(1)
                             .frame(maxWidth: .infinity, minHeight: 36)
-                            .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary))
+                            .background(RoundedRectangle(cornerRadius: 6)
+                                .fill(isPlaying(ep) ? Color.accentColor : Color(nsColor: .quaternaryLabelColor)))
+                            .foregroundStyle(isPlaying(ep) ? Color.white : Color.primary)
                     }
                     .buttonStyle(.plain)
                 }
             }
             .padding(16)
         }
+    }
+
+    /// 该集是否正在播放（同站点 + 同片 + 同集；换线路后 episode 会变，按集匹配）
+    private func isPlaying(_ ep: Episode) -> Bool {
+        guard let p = playerSession.payload else { return false }
+        return p.site.id == site.id
+            && p.vod.vod_id == vod.vod_id
+            && p.episode.title == ep.title
     }
 
     private func loadDetail() {
