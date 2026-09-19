@@ -306,6 +306,11 @@ struct PlayerView: View {
     }
 
     private func startResolve() {
+        // 退出全屏（双击/Esc）会重新触发 onAppear——已在播的集不重复解析+重播
+        if playUrl != nil, resolveError == nil {
+            PlayerLog.append("▶ 已在播放，跳过重复解析（退出全屏触发的 onAppear）")
+            return
+        }
         resolving = true
         resolveError = nil
         playUrl = nil
