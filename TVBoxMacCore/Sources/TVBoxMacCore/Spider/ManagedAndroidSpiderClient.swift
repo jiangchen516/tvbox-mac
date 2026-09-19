@@ -22,9 +22,16 @@ public actor ManagedAndroidSpiderClient: VodFetching {
     private var globalSpiderURL: String?
     private var categoryIDs: [String: [String: String]] = [:]
     private var categoryNames: [String: [String]] = [:]
+    // Bridge 返回的播放地址指向安卓侧 loopback（guest:9978 的 FongMi 兼容代理）；
+    // 宿主机通过 adb 端口转发（host 19978 → guest 9978）访问，需改写端口
+    private let guestProxyPort: Int
+    private let hostProxyPort: Int
 
-    public init(transport: any AndroidDexBridgeTransport) {
+    public init(transport: any AndroidDexBridgeTransport,
+                guestProxyPort: Int = 9978, hostProxyPort: Int = 19978) {
         self.transport = transport
+        self.guestProxyPort = guestProxyPort
+        self.hostProxyPort = hostProxyPort
     }
 
     public func setGlobalSpiderURL(_ url: String?) {
@@ -123,7 +130,13 @@ public actor ManagedAndroidSpiderClient: VodFetching {
         guard !response.url.isEmpty else {
             throw ManagedAndroidSpiderError.invalidResponse("播放响应缺少 url")
         }
-        return response.url
+        // Bridge 返回的地址指向安卓侧 loopback（guest:9978）；宿主机通过 adb 端口转发
+        // （host 19978 → guest 9978）访问——改写为主机侧端口，否则连不上（实测 -1004）
+        let hostPlayURL = response.url.replacingOccurrences(
+            of: "127.0.0.1:\(guestProxyPort)",
+            with: "127.0.0.1:\(hostProxyPort)")
+        PlayerLog.append("▶ play URL 改写: \(response.url.prefix(80)) → \(hostPlayURL.prefix(80))")
+        return hostPlayURL
     }
 
     private func callDecoded<Response: Decodable>(
