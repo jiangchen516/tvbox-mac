@@ -144,8 +144,12 @@ struct PlayerView: View {
                 Text("正在解析播放地址…").foregroundStyle(.white).font(.callout)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) { toggleFullscreen() }   // 双击全屏/退出
         } else if let url = playUrl {
             PlayerVideoView(player: controller.player)
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) { toggleFullscreen() }   // 双击全屏/退出（播放器标准逻辑）
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .overlay(alignment: .topTrailing) {
                     // 缓冲屏显：画面右上角（已缓冲位置 + 实测网速）
