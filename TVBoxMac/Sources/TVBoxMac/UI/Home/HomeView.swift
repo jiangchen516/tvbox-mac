@@ -14,6 +14,20 @@ struct HomeView: View {
 
     var body: some View {
         List(selection: $appState.selectedSite) {
+            // 全站搜索入口（Section 顶部按钮，不参与站点 selection——类型不能混）
+            Section {
+                Button {
+                    appState.showAllSearch = true
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass.circle.fill").foregroundStyle(.blue)
+                        Text("全站搜索").font(.callout.bold())
+                        Spacer()
+                    }
+                }
+                .buttonStyle(.plain)
+                .help("在所有启用站点里搜索资源")
+            }
             ForEach(visibleSites, id: \.id) { site in
                 SiteRow(site: site)
                     .tag(site)
