@@ -48,16 +48,9 @@ struct DetailView: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: 16) {
-            AsyncImage(url: URL(string: (fullVod ?? vod).displayPic ?? "")) { phase in
-                if case .success(let img) = phase {
-                    img.resizable().aspectRatio(contentMode: .fill)
-                } else {
-                    Rectangle().fill(.quaternary)
-                        .overlay(ProgressView())
-                }
-            }
-            .frame(width: 120, height: 180)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            RemoteImage(rawPic: (fullVod ?? vod).vod_pic, cornerRadius: 10)
+                .frame(width: 120, height: 180)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
 
             VStack(alignment: .leading, spacing: 8) {
                 Text((fullVod ?? vod).vod_name).font(.title2).bold()

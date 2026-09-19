@@ -156,16 +156,10 @@ struct VodCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            AsyncImage(url: URL(string: vod.displayPic ?? "")) { phase in
-                if case .success(let image) = phase {
-                    image.resizable().aspectRatio(contentMode: .fill)
-                } else {
-                    Rectangle().fill(.quaternary)
-                        .overlay(Image(systemName: "film").foregroundStyle(.tertiary))
-                }
-            }
-            .aspectRatio(2/3, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            RemoteImage(rawPic: vod.vod_pic)
+                .frame(maxWidth: .infinity)
+                .aspectRatio(2/3, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
 
             Text(vod.vod_name)
                 .font(.callout).lineLimit(2)
