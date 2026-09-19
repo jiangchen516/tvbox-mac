@@ -24,6 +24,22 @@ struct PlayerVideoView: NSViewRepresentable {
     }
 }
 
+/// 捕获视图所在的 NSWindow——SwiftUI Window 场景里 .plain 按钮点击不一定会让
+/// 窗口成为 keyWindow（实测全屏按钮因此失效），拿视图自己的窗口最可靠
+struct WindowAccessor: NSViewRepresentable {
+    let onChange: (NSWindow?) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let v = NSView()
+        DispatchQueue.main.async { [weak v] in onChange(v?.window) }
+        return v
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { onChange(nsView.window) }
+    }
+}
+
 struct PlayerView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject private var playerSession: PlayerSession
@@ -45,6 +61,7 @@ struct PlayerView: View {
     // 控制条自动隐藏：鼠标进入显示，静止 3s（播放中）或移出淡出——与自带播放器同逻辑
     @State private var controlsVisible: Bool = false
     @State private var controlsIdleTask: Task<Void, Never>?
+    @State private var hostingWindow: NSWindow?
 
     var body: some View {
         // 控制条在画面下方折叠显隐：显示时画面略缩，隐藏时画面占满——
@@ -70,6 +87,7 @@ struct PlayerView: View {
         .onContinuousHover { phase in
             if case .active = phase { showControls() }   // 鼠标移动刷新显示计时
         }
+        .background(WindowAccessor { hostingWindow = $0 })
         .onAppear {
             let key = "\(site.id)#\(vod.vod_id)#\(episode.group)#\(episode.title)"
             controller.setPositionKey(key)
@@ -211,7 +229,8 @@ struct PlayerView: View {
                 .font(.caption).foregroundStyle(.white.opacity(0.7))
 
             Button {
-                NSApp.keyWindow?.toggleFullScreen(nil)
+                // keyWindow 在 .plain 按钮点击时不可靠——用视图所在窗口
+                hostingWindow?.toggleFullScreen(nil)
             } label: {
                 Image(systemName: "arrow.up.left.and.arrow.down.right")
             }
