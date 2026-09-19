@@ -25,6 +25,11 @@ struct DetailView: View {
             }
         }
         .onAppear { loadDetail() }
+        .onChange(of: playerSession.payload?.episode.id) { _ in
+            // 播放器换线路/换集时，详情页自动跟随到正在播放的线路
+            // （否则高亮留在原线路的列表里，看起来像没切换）
+            followPlayingEpisode()
+        }
         .frame(width: 760, height: 620)   // 固定尺寸：macOS sheet 按内容撑，会占满父窗宽度
         // 关闭按钮放窗口右上角（Esc 也可关）
         .overlay(alignment: .topTrailing) {
@@ -154,6 +159,17 @@ struct DetailView: View {
               p.site.id == site.id,
               p.vod.vod_id == vod.vod_id else { return false }
         return p.episode.group == g
+    }
+
+    /// 详情页跟随正在播放的线路：切到播放器的当前组并同步集数列表
+    private func followPlayingEpisode() {
+        guard let p = playerSession.payload,
+              p.site.id == site.id,
+              p.vod.vod_id == vod.vod_id,
+              currentGroup != p.episode.group else { return }
+        currentGroup = p.episode.group
+        episodes = p.episodes
+        PlayerLog.append("👁 详情跟随线路[\(p.episode.group)] \(p.episode.title)")
     }
 
     private func loadDetail() {
