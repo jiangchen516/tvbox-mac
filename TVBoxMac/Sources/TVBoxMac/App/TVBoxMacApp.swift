@@ -42,7 +42,7 @@ struct PlayerPayload: Codable, Hashable {
     let site: Site
     let vod: Vod
     var episode: Episode     // 切集时更新（同窗口换集）
-    let episodes: [Episode]
+    var episodes: [Episode]  // 换线路时同步更新（每组线路的集数列表不同）
 }
 
 struct PlayerWindowView: View {

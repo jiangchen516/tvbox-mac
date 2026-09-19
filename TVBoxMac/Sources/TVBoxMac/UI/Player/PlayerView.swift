@@ -293,6 +293,9 @@ struct PlayerView: View {
                 // 先试解析，成功才切（切换会重建播放器并自动播放）
                 _ = try await appState.client.resolvePlayUrl(site: site, vod: vod, episode: cand)
                 playerSession.payload?.episode = cand
+                // 同步更新集数列表：否则重建后的播放器拿到的还是原线路的列表，
+                // 下一次换线路找不到当前集的位置（实测：只能换一次就死在 guard）
+                playerSession.payload?.episodes = list
                 PlayerLog.append("⇄ 已切换到线路[\(g)]")
                 return
             } catch {
