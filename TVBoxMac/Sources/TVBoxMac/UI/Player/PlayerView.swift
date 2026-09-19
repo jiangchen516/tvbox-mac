@@ -272,7 +272,7 @@ struct PlayerView: View {
     }
 
     /// 播放失败自动换线路：同一集（按组内位置）依次尝试其余播放组；
-    /// 全部失败 → 显示无法播放
+    /// 已失败的线路记在 payload（跨重建持久），全部试完 → 显示无法播放
     private func tryNextLine() async {
         let groups = vod.playGroups
         guard groups.count > 1,
@@ -281,29 +281,39 @@ struct PlayerView: View {
             resolveError = "无法播放：\(resolveError ?? "解析失败")"
             return
         }
+        // 记录当前线路失败（每次切换会重建播放器，状态必须存 payload）
+        var failed = playerSession.payload?.failedGroups ?? []
+        if !failed.contains(episode.group) { failed.append(episode.group) }
+        playerSession.payload?.failedGroups = failed
+        PlayerLog.append("⇄ 线路[\(episode.group)]失败（已试 \(failed.count)/\(groups.count) 组）")
+        guard failed.count < groups.count else {
+            resolveError = "无法播放：所有线路均失败（\(groups.count) 组）"
+            PlayerLog.append("❌ 所有线路均失败，停止换线路")
+            return
+        }
         for offset in 1..<groups.count {
             let g = groups[(gIdx + offset) % groups.count]
-            guard g != episode.group else { break }
+            guard g != episode.group, !failed.contains(g) else { continue }
             let list = vod.episodes(group: g)
             guard pos < list.count else { continue }
             let cand = list[pos]
             guard cand.isDirectMedia else { continue }
-            PlayerLog.append("⇄ 线路[\(episode.group)]失败，尝试[\(g)] \(cand.title)")
+            PlayerLog.append("⇄ 尝试[\(g)] \(cand.title)")
             do {
                 // 先试解析，成功才切（切换会重建播放器并自动播放）
                 _ = try await appState.client.resolvePlayUrl(site: site, vod: vod, episode: cand)
                 playerSession.payload?.episode = cand
-                // 同步更新集数列表：否则重建后的播放器拿到的还是原线路的列表，
-                // 下一次换线路找不到当前集的位置（实测：只能换一次就死在 guard）
                 playerSession.payload?.episodes = list
                 PlayerLog.append("⇄ 已切换到线路[\(g)]")
                 return
             } catch {
-                PlayerLog.append("⇄ 线路[\(g)]也失败: \(error.localizedDescription.prefix(90))")
+                if !failed.contains(g) { failed.append(g) }
+                playerSession.payload?.failedGroups = failed
+                PlayerLog.append("⇄ 线路[\(g)]解析失败: \(error.localizedDescription.prefix(90))")
             }
         }
-        resolveError = "无法播放：所有线路均失败"
-        PlayerLog.append("❌ 同一集在所有线路均失败（\(groups.count) 组）")
+        resolveError = "无法播放：所有线路均失败（\(groups.count) 组）"
+        PlayerLog.append("❌ 所有线路均失败，停止换线路")
     }
 }
 #else

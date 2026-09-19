@@ -43,6 +43,7 @@ struct PlayerPayload: Codable, Hashable {
     let vod: Vod
     var episode: Episode     // 切集时更新（同窗口换集）
     var episodes: [Episode]  // 换线路时同步更新（每组线路的集数列表不同）
+    var failedGroups: [String] = []  // 已失败的线路（换线路跨重建持久，防无限循环）
 }
 
 struct PlayerWindowView: View {

@@ -89,14 +89,23 @@ struct DetailView: View {
     private var groupPicker: some View {
         HStack(spacing: 8) {
             ForEach((fullVod ?? vod).playGroups, id: \.self) { g in
-                Button(g) {
+                let playing = isPlayingGroup(g)
+                Button {
                     currentGroup = g
                     episodes = (fullVod ?? vod).episodes(group: g)
+                } label: {
+                    HStack(spacing: 4) {
+                        if playing {
+                            Image(systemName: "play.fill").font(.caption2)
+                        }
+                        Text(g)
+                    }
                 }
                 .buttonStyle(.borderless)
                 .padding(.horizontal, 12).padding(.vertical, 6)
                 .background(Capsule().fill(g == currentGroup ? Color.accentColor.opacity(0.2) : .clear))
-                .overlay(Capsule().strokeBorder(g == currentGroup ? Color.accentColor : .clear))
+                .overlay(Capsule().strokeBorder(playing ? Color.green : (g == currentGroup ? Color.accentColor : .clear)))
+                .help(playing ? "正在播放此线路" : "")
             }
             Spacer()
         }
@@ -128,12 +137,23 @@ struct DetailView: View {
         }
     }
 
-    /// 该集是否正在播放（同站点 + 同片 + 同集；换线路后 episode 会变，按集匹配）
+    /// 该集是否正在播放（同站点 + 同片 + 组内位置一致——
+    /// 跨线路的集标题可能不同（第1集 vs 第01集），不能按标题匹配）
     private func isPlaying(_ ep: Episode) -> Bool {
-        guard let p = playerSession.payload else { return false }
-        return p.site.id == site.id
-            && p.vod.vod_id == vod.vod_id
-            && p.episode.title == ep.title
+        guard let p = playerSession.payload,
+              p.site.id == site.id,
+              p.vod.vod_id == vod.vod_id,
+              let playIdx = p.episodes.firstIndex(where: { $0.id == p.episode.id }),
+              let epIdx = episodes.firstIndex(where: { $0.id == ep.id }) else { return false }
+        return playIdx == epIdx
+    }
+
+    /// 该线路是否正在播放（组名匹配 payload 当前集的组）
+    private func isPlayingGroup(_ g: String) -> Bool {
+        guard let p = playerSession.payload,
+              p.site.id == site.id,
+              p.vod.vod_id == vod.vod_id else { return false }
+        return p.episode.group == g
     }
 
     private func loadDetail() {
