@@ -157,11 +157,9 @@ struct VodCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            // 固定尺寸 140×210：不随图片比例/窗口宽度变化，所有海报完全一致
             RemoteImage(rawPic: vod.vod_pic)
-                .frame(maxWidth: .infinity)
-                // .fill：容器恒定 2/3，横版宽图（综艺类源）裁剪填满；
-                // .fit 会让容器迁就图片比例 → 宽图格子变宽（实测披荆斩棘第六季）
-                .aspectRatio(2/3, contentMode: .fill)
+                .frame(width: 140, height: 210)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
 
             Text(vod.vod_name)
