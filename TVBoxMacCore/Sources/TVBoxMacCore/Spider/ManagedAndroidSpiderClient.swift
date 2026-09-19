@@ -127,7 +127,11 @@ public actor ManagedAndroidSpiderClient: VodFetching {
         let extPreview: String
         if case .string(let s)? = resolvedSite.ext { extPreview = String(s.prefix(120)) }
         else if case .object(let d)? = resolvedSite.ext {
-            let json = (try? JSONSerialization.data(withJSONObject: d, options: [.sortedKeys]))
+            // d 是 [String: JSONValue]（原始枚举）——直接给 NSJSONSerialization 会抛
+            // ObjC 异常（_writeJSONValue，Swift try? 接不住 → 启动即崩，实测）。
+            // 必须先转成 JSON 安全类型（.asAny）再序列化
+            let safe = d.mapValues { $0.asAny }
+            let json = (try? JSONSerialization.data(withJSONObject: safe, options: [.sortedKeys]))
                 .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
             extPreview = String(json.prefix(120))
         } else { extPreview = "-" }
