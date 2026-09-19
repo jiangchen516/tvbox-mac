@@ -99,14 +99,15 @@ public actor ManagedAndroidSpiderClient: VodFetching {
     /// 直接按 Vod 解码会得到全空字段 → 详情页「未知/空白/无链接」
     /// （实测日志：Bridge← detail OK {"list":[...]} 而 🎬 详情 未知 id=0）
     private func decodeDetailVod(from data: Data, site: Site) throws -> Vod {
-        if let vod = try? decode(Vod.self, from: data),
-           !(vod.vod_name ?? "").isEmpty || vod.vod_play_url != nil {
-            return vod
-        }
         struct DetailEnvelope: Decodable { let list: [Vod]? }
+        // 信封优先判断——Vod 宽容解码的默认名是「未知」（非空），不能用名字判空
         if let env = try? decode(DetailEnvelope.self, from: data),
-           let first = env.list?.first {
+           let first = env.list?.first,
+           first.vod_play_url != nil || first.vod_play_from != nil || first.vod_id != 0 {
             return first
+        }
+        if let vod = try? decode(Vod.self, from: data) {
+            return vod
         }
         let preview = String(data: data.prefix(400), encoding: .utf8) ?? "<binary>"
         throw ManagedAndroidSpiderError.invalidResponse(

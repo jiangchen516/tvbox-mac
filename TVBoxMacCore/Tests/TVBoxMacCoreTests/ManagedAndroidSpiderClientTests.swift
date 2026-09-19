@@ -84,4 +84,43 @@ final class ManagedAndroidSpiderClientTests: XCTestCase {
         let request = await transport.lastRequest()
         XCTAssertEqual(request?.site.jar, "https://example.com/tvbox.jar")
     }
+
+    // 实测：dex spider 的 detail 返回 FongMi/CatVod 信封 {"list":[vod]}，
+    // 直接按 Vod 解码得到全空字段 → 详情页「未知/空白/无链接」
+    func testDetailDecodesListEnvelope() async throws {
+        let transport = FakeDexTransport(response: AndroidDexBridgeResponse(
+            id: "1", ok: true,
+            data: .object(["list": .array([.object([
+                "vod_id": .number(93431),
+                "vod_name": .string("剧场版 紧急审讯室"),
+                "vod_play_from": .string("线路1$$$线路2"),
+                "vod_play_url": .string("第1集|https://a/1.m3u8$$$第1集|https://b/1.m3u8")
+            ])])])
+        ))
+        let client = ManagedAndroidSpiderClient(transport: transport)
+        let site = Site(name: "测试", api: "csp_Test", type: 3)
+
+        let vod = try await client.detail(site: site, vodId: 93431)
+
+        XCTAssertEqual(vod.vod_name, "剧场版 紧急审讯室")
+        XCTAssertEqual(vod.vod_id, 93431)
+        XCTAssertNotNil(vod.vod_play_url)
+    }
+
+    // detail 直接返回 Vod（无信封）的形态也要兼容
+    func testDetailDecodesDirectVod() async throws {
+        let transport = FakeDexTransport(response: AndroidDexBridgeResponse(
+            id: "1", ok: true,
+            data: .object([
+                "vod_id": .number(5),
+                "vod_name": .string("直连片"),
+                "vod_play_url": .string("第1集|https://a/1.m3u8")
+            ])
+        ))
+        let client = ManagedAndroidSpiderClient(transport: transport)
+        let site = Site(name: "测试", api: "csp_Test", type: 3)
+
+        let vod = try await client.detail(site: site, vodId: 5)
+        XCTAssertEqual(vod.vod_name, "直连片")
+    }
 }
