@@ -169,9 +169,11 @@ struct DetailView: View {
         Task {
             loadingDetail = true
             defer { loadingDetail = false }
-            // 列表页的 vod 可能缺 play_url，拉一次详情补全
+            // 列表页的 vod 可能缺 play_url，拉一次详情补全。
+            // 部分源的详情响应不完整（BttwooGuard 缺 vod_name/vod_id，实测）——
+            // TVBox 约定：详情缺的字段用列表 vod 补（合并）
             let detail = (try? await appState.client.detail(site: site, vodId: vod.displayId)) ?? vod
-            fullVod = detail
+            fullVod = Self.merged(detail, fallback: vod)
             let groups = detail.playGroups
             // 优先选直连媒体的播放组（网页播放页组 AVPlayer 播不了，只能直接播 m3u8/mp4 的组）
             let mediaGroup = groups.first { g in
@@ -188,6 +190,27 @@ struct DetailView: View {
             let favId = "\(site.id)#\(detail.vod_id)"
             isFavorite = await appState.historyStore.isFavorite(id: favId)
         }
+    }
+
+    /// 详情响应与列表条目合并：详情的非空字段优先，缺失字段用列表 vod 补
+    /// （BttwooGuard 的 detail 缺 vod_name/vod_id，实测显示「未知」）
+    private static func merged(_ detail: Vod, fallback: Vod) -> Vod {
+        var v = detail
+        if v.vod_name.isEmpty || v.vod_name == "未知" { v.vod_name = fallback.vod_name }
+        if v.vod_id == 0 { v.vod_id = fallback.vod_id }
+        if v.vodIdString == nil { v.vodIdString = fallback.vodIdString }
+        // 显式逐字段（String? 字段的 keyPath 数组在 Swift 里推不出根类型）
+        if (v.vod_play_url ?? "").isEmpty { v.vod_play_url = fallback.vod_play_url }
+        if (v.vod_play_from ?? "").isEmpty { v.vod_play_from = fallback.vod_play_from }
+        if (v.vod_pic ?? "").isEmpty { v.vod_pic = fallback.vod_pic }
+        if (v.vod_content ?? "").isEmpty { v.vod_content = fallback.vod_content }
+        if (v.vod_year ?? "").isEmpty { v.vod_year = fallback.vod_year }
+        if (v.vod_area ?? "").isEmpty { v.vod_area = fallback.vod_area }
+        if (v.vod_remarks ?? "").isEmpty { v.vod_remarks = fallback.vod_remarks }
+        if (v.vod_actor ?? "").isEmpty { v.vod_actor = fallback.vod_actor }
+        if (v.vod_director ?? "").isEmpty { v.vod_director = fallback.vod_director }
+        if (v.vod_score ?? "").isEmpty { v.vod_score = fallback.vod_score }
+        return v
     }
 
     private func toggleFavorite() {
