@@ -85,6 +85,10 @@ struct PlayerView: View {
             controlsIdleTask?.cancel()
             controller.stop()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .stopPlayerPlayback)) { _ in
+            // 播放窗口被 X 关闭（willClose）→ 立即停掉 AVPlayer（否则后台继续出声）
+            controller.stop()
+        }
     }
 
     private func showControls() {
@@ -297,7 +301,8 @@ struct PlayerView: View {
             let list = vod.episodes(group: g)
             guard pos < list.count else { continue }
             let cand = list[pos]
-            guard cand.isDirectMedia else { continue }
+            // 不再按直连过滤：相对路径组（网页播放页）spider 的 play 也能解析，
+            // 解析 + 12s 超时本身就是试错；全直连过滤会让全相对源的换线路没有候选
             PlayerLog.append("⇄ 尝试[\(g)] \(cand.title)")
             do {
                 // 先试解析，成功才切（切换会重建播放器并自动播放）

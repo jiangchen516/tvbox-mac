@@ -72,7 +72,19 @@ struct PlayerWindowView: View {
         }
         .frame(minWidth: 720, minHeight: 480)
         .navigationTitle(session.payload?.vod.vod_name ?? "播放")
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { note in
+            // 窗口 X 关闭时 onDisappear 不可靠（实测：窗口关了 AVPlayer 还在放声音），
+            // 用 willCloseNotification 强制停掉播放器
+            if (note.object as? NSWindow)?.identifier?.rawValue == "player"
+                || (note.object as? NSWindow)?.title == session.payload?.vod.vod_name {
+                NotificationCenter.default.post(name: .stopPlayerPlayback, object: nil)
+            }
+        }
     }
+}
+
+extension Notification.Name {
+    static let stopPlayerPlayback = Notification.Name("stopPlayerPlayback")
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {

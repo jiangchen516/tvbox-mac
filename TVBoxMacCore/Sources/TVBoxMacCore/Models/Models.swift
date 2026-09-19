@@ -514,13 +514,15 @@ public extension Vod {
             } else if let dollarIdx = item.firstIndex(of: "$") {
                 // 组内 $$$ 已拆掉，单个 $ 是 title-url 分隔符（"title$url"）
                 let after = String(item[item.index(after: dollarIdx)...])
-                if after.lowercased().hasPrefix("http") {
+                // http(s) 直连或 "/" 相对路径（Dm84Guard 类源的网页播放页，
+                // spider 的 play 会解析相对 URL）都有效
+                if after.lowercased().hasPrefix("http") || after.hasPrefix("/") {
                     rawTitle = String(item[..<dollarIdx])
                     url = after
                 }
             }
             let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard trimmed.lowercased().hasPrefix("http") else { continue }
+            guard trimmed.lowercased().hasPrefix("http") || trimmed.hasPrefix("/") else { continue }
             let t = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
             let title = t.isEmpty ? "第\(result.count + 1)集" : t
             result.append(Episode(title: title, url: trimmed, group: group, index: result.count))
