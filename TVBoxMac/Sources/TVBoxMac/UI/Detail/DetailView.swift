@@ -48,7 +48,7 @@ struct DetailView: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: 16) {
-            AsyncImage(url: URL(string: (fullVod ?? vod).vod_pic ?? "")) { phase in
+            AsyncImage(url: URL(string: (fullVod ?? vod).displayPic ?? "")) { phase in
                 if case .success(let img) = phase {
                     img.resizable().aspectRatio(contentMode: .fill)
                 } else {
@@ -177,7 +177,7 @@ struct DetailView: View {
             loadingDetail = true
             defer { loadingDetail = false }
             // 列表页的 vod 可能缺 play_url，拉一次详情补全
-            let detail = (try? await appState.client.detail(site: site, vodId: vod.vod_id)) ?? vod
+            let detail = (try? await appState.client.detail(site: site, vodId: vod.displayId)) ?? vod
             fullVod = detail
             let groups = detail.playGroups
             // 优先选直连媒体的播放组（网页播放页组 AVPlayer 播不了，只能直接播 m3u8/mp4 的组）

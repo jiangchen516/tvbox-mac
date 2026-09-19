@@ -100,7 +100,7 @@ final class ManagedAndroidSpiderClientTests: XCTestCase {
         let client = ManagedAndroidSpiderClient(transport: transport)
         let site = Site(name: "测试", api: "csp_Test", type: 3)
 
-        let vod = try await client.detail(site: site, vodId: 93431)
+        let vod = try await client.detail(site: site, vodId: "93431")
 
         XCTAssertEqual(vod.vod_name, "剧场版 紧急审讯室")
         XCTAssertEqual(vod.vod_id, 93431)
@@ -120,7 +120,7 @@ final class ManagedAndroidSpiderClientTests: XCTestCase {
         let client = ManagedAndroidSpiderClient(transport: transport)
         let site = Site(name: "测试", api: "csp_Test", type: 3)
 
-        let vod = try await client.detail(site: site, vodId: 5)
+        let vod = try await client.detail(site: site, vodId: "5")
         XCTAssertEqual(vod.vod_name, "直连片")
     }
 }

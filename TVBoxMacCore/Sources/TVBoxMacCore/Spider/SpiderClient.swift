@@ -112,7 +112,7 @@ public actor SpiderClient {
         return VodPage(page: page, pagecount: 1, limit: 20, total: r.list.count, list: r.list)
     }
 
-    public func detail(site: Site, vodId: Int) async throws -> Vod {
+    public func detail(site: Site, vodId: String) async throws -> Vod {
         try await ensureLoaded(site)
         let jsonStr = try await runtime.detail(id: "\(vodId)")
         struct R: Decodable { let list: [Vod] }

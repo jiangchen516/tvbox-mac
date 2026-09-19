@@ -95,9 +95,10 @@ public actor ManagedAndroidSpiderClient: VodFetching {
         categoryNames[site.id] = nil
     }
 
-    public func detail(site: Site, vodId: Int) async throws -> Vod {
+    public func detail(site: Site, vodId: String) async throws -> Vod {
+        // vodId 保留原始形态：豆瓣类 Guard 源是复合字符串（"msearch:###名字###图片@headers"）
         let data = try await call(operation: "detail", site: site,
-                                  arguments: ["vodId": .number(Double(vodId))])
+                                  arguments: ["vodId": .string(vodId)])
         return try decodeDetailVod(from: data, site: site)
     }
 

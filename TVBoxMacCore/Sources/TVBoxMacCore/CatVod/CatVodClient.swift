@@ -132,7 +132,7 @@ public actor CatVodClient {
         return try await fetchPage(buildApiUrl(site.api, query: query), headers: requestHeaders(site))
     }
 
-    public func detail(site: Site, vodId: Int) async throws -> Vod {
+    public func detail(site: Site, vodId: String) async throws -> Vod {
         let query = "ac=detail&ids=\(vodId)"
         let page = try await fetchPage(buildApiUrl(site.api, query: query), headers: requestHeaders(site))
         guard let vod = page.list.first else {

@@ -82,7 +82,7 @@ public actor TVBoxClient {
         try await client(for: site).search(site: site, keyword: keyword, page: page)
     }
 
-    public func detail(site: Site, vodId: Int) async throws -> Vod {
+    public func detail(site: Site, vodId: String) async throws -> Vod {
         try await client(for: site).detail(site: site, vodId: vodId)
     }
 
@@ -110,7 +110,7 @@ private struct CatVodProxy: VodFetching {
     func categories(site: Site) async throws -> [String] { try await catVod.categories(site: site) }
     func browse(site: Site, category: String?, page: Int) async throws -> VodPage { try await catVod.browse(site: site, category: category, page: page) }
     func search(site: Site, keyword: String, page: Int) async throws -> VodPage { try await catVod.search(site: site, keyword: keyword, page: page) }
-    func detail(site: Site, vodId: Int) async throws -> Vod { try await catVod.detail(site: site, vodId: vodId) }
+    func detail(site: Site, vodId: String) async throws -> Vod { try await catVod.detail(site: site, vodId: vodId) }
     func resolvePlayUrl(site: Site, vod: Vod, episode: Episode) async throws -> String { try await catVod.resolvePlayUrl(site: site, vod: vod, episode: episode) }
 }
 
@@ -120,7 +120,7 @@ private struct SpiderProxy: VodFetching {
     func categories(site: Site) async throws -> [String] { try await spider.categories(site: site) }
     func browse(site: Site, category: String?, page: Int) async throws -> VodPage { try await spider.browse(site: site, category: category, page: page) }
     func search(site: Site, keyword: String, page: Int) async throws -> VodPage { try await spider.search(site: site, keyword: keyword, page: page) }
-    func detail(site: Site, vodId: Int) async throws -> Vod { try await spider.detail(site: site, vodId: vodId) }
+    func detail(site: Site, vodId: String) async throws -> Vod { try await spider.detail(site: site, vodId: vodId) }
     func resolvePlayUrl(site: Site, vod: Vod, episode: Episode) async throws -> String { try await spider.resolvePlayUrl(site: site, vod: vod, episode: episode) }
 }
 
@@ -130,6 +130,6 @@ private struct ManagedAndroidSpiderProxy: VodFetching {
     func categories(site: Site) async throws -> [String] { try await spider.categories(site: site) }
     func browse(site: Site, category: String?, page: Int) async throws -> VodPage { try await spider.browse(site: site, category: category, page: page) }
     func search(site: Site, keyword: String, page: Int) async throws -> VodPage { try await spider.search(site: site, keyword: keyword, page: page) }
-    func detail(site: Site, vodId: Int) async throws -> Vod { try await spider.detail(site: site, vodId: vodId) }
+    func detail(site: Site, vodId: String) async throws -> Vod { try await spider.detail(site: site, vodId: vodId) }
     func resolvePlayUrl(site: Site, vod: Vod, episode: Episode) async throws -> String { try await spider.resolvePlayUrl(site: site, vod: vod, episode: episode) }
 }

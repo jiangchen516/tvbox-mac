@@ -156,7 +156,7 @@ struct VodCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            AsyncImage(url: URL(string: vod.vod_pic ?? "")) { phase in
+            AsyncImage(url: URL(string: vod.displayPic ?? "")) { phase in
                 if case .success(let image) = phase {
                     image.resizable().aspectRatio(contentMode: .fill)
                 } else {

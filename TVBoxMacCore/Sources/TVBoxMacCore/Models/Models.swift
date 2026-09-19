@@ -370,6 +370,9 @@ public func resolveSpiderURL(_ raw: String?, against baseURLString: String?) -> 
 // MARK: - CatVod 数据
 public struct Vod: Codable, Sendable, Identifiable, Hashable {
     public var vod_id: Int
+    // 复合字符串 id（FongMi msearch 格式："msearch:###名字###图片@headers"）——
+    // 豆瓣类 Guard 源的 vod_id 是字符串，Int 解析会全变 0 → ForEach 重复 id 只渲染一条
+    public var vodIdString: String?
     public var vod_name: String
     public var type_id: Int?
     public var type_name: String?
@@ -387,7 +390,21 @@ public struct Vod: Codable, Sendable, Identifiable, Hashable {
     public var vod_time: String?
     public var vod_blurb: String?
 
-    public var id: Int { vod_id }
+    // 唯一标识：字符串 id（复合源）优先，否则 数字id+名字（数字 id 可能撞车）
+    public var id: String { vodIdString ?? "\(vod_id)|\(vod_name)" }
+
+    /// 详情/播放接口用的 id（保留源的原始形态：复合字符串或数字）
+    public var displayId: String { vodIdString ?? String(vod_id) }
+
+    /// 显示用的海报地址：剥 FongMi 的 @headers 标记（@Referer=...@User-Agent=...），
+    /// 否则 AsyncImage 解析失败（豆瓣类 Guard 源的图片 URL 都带）
+    public var displayPic: String? {
+        guard let pic = vod_pic, !pic.isEmpty else { return nil }
+        if let r = pic.range(of: "@Referer=") ?? pic.range(of: "@User-Agent=") {
+            return String(pic[..<r.lowerBound])
+        }
+        return pic
+    }
 
     public init(vod_id: Int, vod_name: String, type_id: Int? = nil, type_name: String? = nil,
                 vod_year: String? = nil, vod_area: String? = nil, vod_remarks: String? = nil,
@@ -418,6 +435,7 @@ public struct Vod: Codable, Sendable, Identifiable, Hashable {
     public init(from decoder: Decoder) throws {
         let raw = try LenientJSON.object(from: decoder)
         self.vod_id = LenientJSON.int(raw["vod_id"]) ?? 0
+        self.vodIdString = LenientJSON.str(raw["vod_id"])
         self.vod_name = LenientJSON.str(raw["vod_name"]) ?? "未知"
         self.type_id = LenientJSON.int(raw["type_id"])
         self.type_name = LenientJSON.str(raw["type_name"])
@@ -532,7 +550,7 @@ public protocol VodFetching: Sendable {
     func categories(site: Site) async throws -> [String]
     func browse(site: Site, category: String?, page: Int) async throws -> VodPage
     func search(site: Site, keyword: String, page: Int) async throws -> VodPage
-    func detail(site: Site, vodId: Int) async throws -> Vod
+    func detail(site: Site, vodId: String) async throws -> Vod
     func resolvePlayUrl(site: Site, vod: Vod, episode: Episode) async throws -> String
 }
 
