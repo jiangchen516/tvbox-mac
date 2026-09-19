@@ -89,8 +89,28 @@ public actor ManagedAndroidSpiderClient: VodFetching {
     }
 
     public func detail(site: Site, vodId: Int) async throws -> Vod {
-        try await callDecoded(operation: "detail", site: site,
-                              arguments: ["vodId": .number(Double(vodId))])
+        let data = try await call(operation: "detail", site: site,
+                                  arguments: ["vodId": .number(Double(vodId))])
+        return try decodeDetailVod(from: data, site: site)
+    }
+
+    /// detail 响应两种形态：直接 Vod，或 FongMi/CatVod 信封 {"list":[Vod,...]}。
+    /// 实测：dex spider 的 detail 返回信封 {"list":[{vod_play_from, vod_play_url, ...}]}，
+    /// 直接按 Vod 解码会得到全空字段 → 详情页「未知/空白/无链接」
+    /// （实测日志：Bridge← detail OK {"list":[...]} 而 🎬 详情 未知 id=0）
+    private func decodeDetailVod(from data: Data, site: Site) throws -> Vod {
+        if let vod = try? decode(Vod.self, from: data),
+           !(vod.vod_name ?? "").isEmpty || vod.vod_play_url != nil {
+            return vod
+        }
+        struct DetailEnvelope: Decodable { let list: [Vod]? }
+        if let env = try? decode(DetailEnvelope.self, from: data),
+           let first = env.list?.first {
+            return first
+        }
+        let preview = String(data: data.prefix(400), encoding: .utf8) ?? "<binary>"
+        throw ManagedAndroidSpiderError.invalidResponse(
+            "detail 响应无法映射为 Vod（site=\(site.name)）：\(preview)")
     }
 
     public func resolvePlayUrl(site: Site, vod: Vod, episode: Episode) async throws -> String {
