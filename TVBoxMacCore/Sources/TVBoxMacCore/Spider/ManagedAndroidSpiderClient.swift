@@ -132,19 +132,9 @@ public actor ManagedAndroidSpiderClient: VodFetching {
         }
         // Bridge 返回的地址指向安卓侧 loopback（guest:9978）；宿主机通过 adb 端口转发
         // （host 19978 → guest 9978）访问——改写为主机侧端口，否则连不上（实测 -1004）
-        // 代理形状（url 指向 bridge 的媒体会话 /proxy/media/<uuid>）：该会话代理
-        // 返回的是上游 URL 文本而非内容（AVPlayer 无法解析，实测卡死）。
-        // 改用 danmaku 字段里的 spider 代理 URL（9979 /proxy?do=m3u8&url=...）——
-        // spider 的 proxy 服务带请求头拉流，手机端 FongMi 用的就是它
-        if response.url.contains("/proxy/media/"), let danmaku = response.danmaku,
-           let inner = Self.extractProxyM3u8(from: danmaku) {
-            // spider 代理端口是 guest+1（9979），转发到 host+1（19979）
-            let rewritten = inner.replacingOccurrences(
-                of: "127.0.0.1:\(guestProxyPort + 1)",
-                with: "127.0.0.1:\(hostProxyPort + 1)")
-            PlayerLog.append("▶ 用 spider 代理 URL: \(rewritten.prefix(110))")
-            return rewritten
-        }
+        // 代理形状（url 指向 bridge 的媒体会话 /proxy/media/<uuid>）：这是桥的
+        // 设计路径——writeSessionMedia 直接调 spider 的 proxy()（绕过 play 后即关
+        // 的租约）拉流。9979 的 spider 代理 URL 在 play 返回后租约已关（410），不能用
         var hostPlayURL = response.url.replacingOccurrences(
             of: "127.0.0.1:\(guestProxyPort)",
             with: "127.0.0.1:\(hostProxyPort)")
