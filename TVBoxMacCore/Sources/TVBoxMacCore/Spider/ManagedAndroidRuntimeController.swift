@@ -82,6 +82,9 @@ public actor ManagedAndroidRuntimeController {
         ], timeout: 8)
         _ = try runADB(["shell", "am", "start", "-n", "com.okvideomac.dexbridge/.BridgeActivity"])
         _ = try runADB(["forward", "tcp:\(hostBridgePort)", "tcp:\(guestBridgePort)"])
+        // spider 代理端口（9979）：播放走 spider 的 proxy 服务（/proxy?do=m3u8），
+        // 与桥 API 端口不同，需要单独转发
+        _ = try runADB(["forward", "tcp:\(hostBridgePort + 1)", "tcp:\(guestBridgePort + 1)"])
         try await waitForBridgeHealth()
     }
 
