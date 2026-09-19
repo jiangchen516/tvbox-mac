@@ -133,6 +133,16 @@ public actor ManagedAndroidSpiderClient: VodFetching {
         }
         // Bridge 返回的地址指向安卓侧 loopback（guest:9978）；宿主机通过 adb 端口转发
         // （host 19978 → guest 9978）访问——改写为主机侧端口，否则连不上（实测 -1004）
+        // parse=1 → jx 解析页（网页 URL，Dm84Guard 类源）——webview 解析出真流
+        // （手机端 FongMi 的 parse 子系统做法；webview 加载页面 + JS 捕获真 m3u8）
+        if Self.isParseOne(response.parse) {
+            PlayerLog.append("🌐 parse=1：jx 页面，走 webview 解析")
+            let page = URL(string: response.url)
+            if let page {
+                let real = try await WebViewParser.shared.resolve(page)
+                return real.absoluteString
+            }
+        }
         // 代理形状（url 指向 bridge 的媒体会话 /proxy/media/<uuid>）：这是桥的
         // 设计路径——writeSessionMedia 直接调 spider 的 proxy()（绕过 play 后即关
         // 的租约）拉流。9979 的 spider 代理 URL 在 play 返回后租约已关（410），不能用
@@ -249,6 +259,15 @@ public actor ManagedAndroidSpiderClient: VodFetching {
         PlayerLog.append("Bridge← \(operation) OK(\(out.count)B) 前 300: \(String(data: out.prefix(300), encoding: .utf8) ?? "")")
         return out
     }
+    /// parse 标志：实测有数字 1 和字符串 "1" 两种形态
+    private static func isParseOne(_ v: JSONValue?) -> Bool {
+        switch v {
+        case .number(let n): return n == 1
+        case .string(let s): return s == "1"
+        default: return false
+        }
+    }
+
     private func decode<Response: Decodable>(_ type: Response.Type, from data: Data) throws -> Response {
         do {
             return try JSONDecoder().decode(type, from: data)
@@ -348,4 +367,6 @@ private struct BridgePlayResponse: Decodable {
     // spider 代理 URL（9979 /proxy?do=m3u8&url=...&headers=...）——
     // spider 的 proxy 服务带请求头拉流，手机端 FongMi 就是用它
     let danmaku: String?
+    // parse=1 → 返回的是 jx 解析页（网页 URL），需要 webview 解析真流
+    let parse: JSONValue?
 }
