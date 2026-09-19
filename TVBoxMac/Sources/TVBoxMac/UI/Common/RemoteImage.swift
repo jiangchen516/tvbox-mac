@@ -23,11 +23,13 @@ struct RemoteImage: View {
             } else {
                 Rectangle()
                     .fill(.quaternary)
-                    .overlay(
-                        finished
-                            ? Image(systemName: "film").foregroundStyle(.tertiary)
-                            : ProgressView().controlSize(.small)
-                    )
+                    .overlay {
+                        if finished {
+                            Image(systemName: "film").foregroundStyle(.tertiary)
+                        } else {
+                            ProgressView().controlSize(.small)
+                        }
+                    }
             }
         }
         .onAppear { load() }
