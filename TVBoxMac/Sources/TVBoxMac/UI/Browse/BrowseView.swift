@@ -138,6 +138,7 @@ struct BrowseView: View {
             vods = p == 1 ? result.list : vods + result.list
             page = p
             pagecount = result.pagecount
+            PlayerLog.append("📄 浏览 \(site.name) 分类=\(currentCategory.isEmpty ? "-" : currentCategory) 页=\(p) → \(result.list.count) 条（pagecount=\(result.pagecount)）")
         } catch {
             errorMessage = "加载失败: \(error.localizedDescription)"
             showErrorMessage = true

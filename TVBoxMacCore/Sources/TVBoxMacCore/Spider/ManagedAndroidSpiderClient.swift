@@ -123,19 +123,32 @@ public actor ManagedAndroidSpiderClient: VodFetching {
         if resolvedSite.jar == nil || resolvedSite.jar?.isEmpty == true {
             resolvedSite.jar = globalSpiderURL
         }
+        // 诊断日志：Bridge 请求（含 ext 预览——ext 是 Guard 源最常见的失败原因）
+        let extPreview: String
+        if case .string(let s)? = resolvedSite.ext { extPreview = String(s.prefix(120)) }
+        else if case .object(let d)? = resolvedSite.ext {
+            let json = (try? JSONSerialization.data(withJSONObject: d, options: [.sortedKeys]))
+                .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+            extPreview = String(json.prefix(120))
+        } else { extPreview = "-" }
+        PlayerLog.append("Bridge→ \(operation) site=\(site.name) api=\(site.api) jar=\((resolvedSite.jar ?? "-").prefix(90)) ext=\(extPreview)")
         let request = AndroidDexBridgeRequest(operation: operation, site: resolvedSite, arguments: arguments)
         let response: AndroidDexBridgeResponse
         do {
             response = try await transport.send(request)
         } catch {
+            PlayerLog.append("Bridge← \(operation) 传输失败: \(error.localizedDescription)")
             throw ManagedAndroidSpiderError.bridge(error.localizedDescription)
         }
         guard response.ok else {
+            PlayerLog.append("Bridge← \(operation) ok=false error=\(response.error ?? "未知错误")")
             throw ManagedAndroidSpiderError.bridge(response.error ?? "未知错误")
         }
         guard let value = response.data else {
+            PlayerLog.append("Bridge← \(operation) 缺少 data")
             throw ManagedAndroidSpiderError.invalidResponse("缺少可解码 data（operation=\(operation), site=\(site.name)）")
         }
+        // 归一化 + 记录响应预览（raw dex spider 返回的字段名可能是任意形状）
         var current = value
         let jarDescription = site.jar ?? globalSpiderURL ?? ""
         for _ in 0..<3 {
@@ -143,10 +156,11 @@ public actor ManagedAndroidSpiderClient: VodFetching {
                text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 // 空串 = spider 正常返回但没有数据。对 csp_ 站点，最常见原因是
                 // 配置的 spider jar 里没有这个 api 类（jar 版本与源不匹配/失效），
-                // 或该源需要 ext 而站点未提供——给用户有指导性的错误而不是裸"空字符串"
+                // 或该源需要 ext 而站点未提供——给用户有指导性的错误
                 let hint = site.api.lowercased().hasPrefix("csp_")
                     ? "该源的 spider jar 里可能没有 \(site.api) 类（jar 版本不匹配或已失效），或此源需要 ext 配置。请换线路/换配置试试"
                     : "源返回了空数据（可能已失效）"
+                PlayerLog.append("Bridge← \(operation) 空数据 jar=\(jarDescription.prefix(90)) ext=\(extPreview)")
                 throw ManagedAndroidSpiderError.invalidResponse(
                     "Bridge 返回空数据：\(hint)（operation=\(operation), site=\(site.name), api=\(site.api), jar=\(jarDescription.prefix(80))）"
                 )
@@ -154,19 +168,22 @@ public actor ManagedAndroidSpiderClient: VodFetching {
             if case .string(let text) = current,
                let data = text.data(using: .utf8),
                let object = try? JSONSerialization.jsonObject(with: data) {
+                PlayerLog.append("Bridge← \(operation) 字符串响应(\(text.count)B) 前 400: \(String(text.prefix(400)))")
                 current = Self.jsonValue(from: object)
                 continue
             }
             break
         }
         guard JSONSerialization.isValidJSONObject(current.asAny) else {
+            PlayerLog.append("Bridge← \(operation) 非 JSON: \(String(describing: current).prefix(400))")
             throw ManagedAndroidSpiderError.invalidResponse(
-                "data 不是 JSON 容器（operation=\(operation), site=\(site.name), api=\(site.api), jar=\(jarDescription), value=\(current)）"
+                "data 不是 JSON 容器（operation=\(operation), site=\(site.name), api=\(site.api), jar=\(jarDescription), value=\(String(describing: current).prefix(400))）"
             )
         }
-        return try JSONSerialization.data(withJSONObject: current.asAny)
+        let out = try JSONSerialization.data(withJSONObject: current.asAny)
+        PlayerLog.append("Bridge← \(operation) OK(\(out.count)B) 前 300: \(String(data: out.prefix(300), encoding: .utf8) ?? "")")
+        return out
     }
-
     private func decode<Response: Decodable>(_ type: Response.Type, from data: Data) throws -> Response {
         do {
             return try JSONDecoder().decode(type, from: data)

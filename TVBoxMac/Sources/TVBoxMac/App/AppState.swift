@@ -75,6 +75,8 @@ final class AppState: ObservableObject {
             }
         }
         configs = bound
+        let boundCount = bound.reduce(0) { $0 + $1.loaded.config.sites.filter { $0.jar != nil }.count }
+        PlayerLog.append("配置加载: \(bound.count) 份（\(bound.map { $0.loaded.name }.joined(separator: "、"))），已绑定 spider jar 的站点 \(boundCount) 个")
         await client.loadConfigs(bound.map { $0.loaded })
         // 重启后回到上次选中的站点（直接显示其主页/第一个分类页）
         if let last = UserDefaults.standard.string(forKey: Self.lastSiteKey) {

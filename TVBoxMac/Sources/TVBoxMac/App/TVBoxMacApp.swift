@@ -126,6 +126,9 @@ struct ContentView: View {
         // 站点切换时记录，重启后自动回到该站点
         .onChange(of: appState.selectedSite?.id) { _ in
             appState.rememberSelectedSite()
+            if let s = appState.selectedSite {
+                PlayerLog.append("🖱 选择站点: \(s.name) api=\(s.api) jar=\(s.jar ?? "-")")
+            }
         }
         .toolbar {
             ToolbarItem {

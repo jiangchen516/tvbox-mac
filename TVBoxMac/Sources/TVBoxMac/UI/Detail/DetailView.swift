@@ -145,6 +145,7 @@ struct DetailView: View {
                 currentGroup = ""
                 episodes = []
             }
+            PlayerLog.append("🎬 详情 \(detail.vod_name) id=\(detail.vod_id) → 线路=\(detail.vod_play_from ?? "-") 组数=\(detail.playGroups.count) 选定组=\(currentGroup) 集数=\(episodes.count)")
             let favId = "\(site.id)#\(detail.vod_id)"
             isFavorite = await appState.historyStore.isFavorite(id: favId)
         }
