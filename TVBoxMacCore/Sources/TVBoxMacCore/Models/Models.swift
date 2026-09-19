@@ -512,17 +512,18 @@ public extension Vod {
                 url = parts.last ?? item
                 rawTitle = parts.first ?? ""
             } else if let dollarIdx = item.firstIndex(of: "$") {
-                // 组内 $$$ 已拆掉，单个 $ 是 title-url 分隔符（"title$url"）
+                // 组内 $$$ 已拆掉，单个 $ 是 title-url 分隔符（"title$url"）。
+                // url 部分接受任意非空内容——TVBox 约定由 spider 的 play 解释：
+                // http 直连、"/" 相对路径、TOS 对象 key（AppSxGuard 的
+                // "tos-cn-i-...@...@1@@@@1"）等都可能，过滤会让集数全丢
                 let after = String(item[item.index(after: dollarIdx)...])
-                // http(s) 直连或 "/" 相对路径（Dm84Guard 类源的网页播放页，
-                // spider 的 play 会解析相对 URL）都有效
-                if after.lowercased().hasPrefix("http") || after.hasPrefix("/") {
+                if !after.trimmingCharacters(in: .whitespaces).isEmpty {
                     rawTitle = String(item[..<dollarIdx])
                     url = after
                 }
             }
             let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard trimmed.lowercased().hasPrefix("http") || trimmed.hasPrefix("/") else { continue }
+            guard !trimmed.isEmpty else { continue }
             let t = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
             let title = t.isEmpty ? "第\(result.count + 1)集" : t
             result.append(Episode(title: title, url: trimmed, group: group, index: result.count))
