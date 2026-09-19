@@ -58,8 +58,24 @@ final class AppState: ObservableObject {
 
     func bootstrap() async {
         let entries = await configStore.load()
-        configs = entries
-        await client.loadConfigs(entries.map { $0.loaded })
+        // 多配置共存：每份配置的 csp_ 站点绑定【该配置自己】解析出的 spider jar。
+        // 必须在这里绑定（UI 的站点列表来自 appState.configs）——只在 TVBoxClient
+        // 侧绑定的话，UI 传下来的 site 仍是未绑定副本，会回退到全局 spiderURL
+        // （第一份配置的 jar），盖掉其他配置的 jar（实测：摸鱼的 qiniu jar 盖掉
+        // 饭太硬的 fan.txt → DouDouGuard 等 Guard 站点全空）
+        var bound = entries
+        for i in bound.indices {
+            guard let spiderURL = bound[i].loaded.resolvedGlobalSpiderURL() else { continue }
+            for j in bound[i].loaded.config.sites.indices {
+                let s = bound[i].loaded.config.sites[j]
+                let jarEmpty = s.jar == nil || s.jar?.isEmpty == true
+                if jarEmpty && s.api.lowercased().hasPrefix("csp_") {
+                    bound[i].loaded.config.sites[j].jar = spiderURL
+                }
+            }
+        }
+        configs = bound
+        await client.loadConfigs(bound.map { $0.loaded })
         // 重启后回到上次选中的站点（直接显示其主页/第一个分类页）
         if let last = UserDefaults.standard.string(forKey: Self.lastSiteKey) {
             selectedSite = enabledSites.first { $0.id == last }
