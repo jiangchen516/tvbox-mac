@@ -22,8 +22,13 @@ struct SearchAllView: View {
     @State private var totalCount: Int = 0
     @State private var running: Bool = false
     @State private var searchTask: Task<Void, Never>?
-    @State private var selectedVod: Vod?
-    @State private var selectedSite: Site?
+    // 点击的条目（site+vod 绑定在一起，sheet 用 item: 呈现）
+    private struct SearchHit: Identifiable {
+        let site: Site
+        let vod: Vod
+        var id: String { site.id + "#" + vod.id }
+    }
+    @State private var hit: SearchHit?
 
     private let perSiteTimeout: TimeInterval = 10
     private let maxConcurrent = 2
@@ -44,10 +49,8 @@ struct SearchAllView: View {
         }
         .navigationTitle("全站搜索")
         .onDisappear { searchTask?.cancel() }
-        .sheet(item: $selectedVod) { vod in
-            if let site = selectedSite {
-                DetailView(site: site, vod: vod)
-            }
+        .sheet(item: $hit) { h in
+            DetailView(site: h.site, vod: h.vod)
         }
     }
 
@@ -62,7 +65,7 @@ struct SearchAllView: View {
                 Button {
                     startSearch()
                 } label: {
-                    Label("搜索全部站点", systemImage: "magnifyingglass")
+                    Label("全站搜索", systemImage: "magnifyingglass")
                 }
                 .disabled(keyword.trimmingCharacters(in: .whitespaces).isEmpty)
             }
@@ -80,10 +83,10 @@ struct SearchAllView: View {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)], spacing: 20) {
                         ForEach(group.vods) { vod in
                             Button {
-                                selectedSite = group.site
-                                selectedVod = vod
+                                hit = SearchHit(site: group.site, vod: vod)
                             } label: {
                                 VodCard(vod: vod)
+                                    .contentShape(Rectangle())   // 整卡区域可点
                             }
                             .buttonStyle(.plain)
                         }
