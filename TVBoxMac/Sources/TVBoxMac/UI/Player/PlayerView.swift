@@ -62,6 +62,10 @@ struct PlayerView: View {
     @State private var controlsVisible: Bool = false
     @State private var controlsIdleTask: Task<Void, Never>?
     @State private var hostingWindow: NSWindow?
+    // 手动全屏（不依赖 macOS toggleFullScreen——实测在 SwiftUI Window 上不生效）：
+    // 无边框 + 屏幕尺寸 + 隐藏菜单栏/Dock
+    @State private var isFullscreen: Bool = false
+    @State private var savedFrame: NSRect?
 
     var body: some View {
         // 控制条在画面下方折叠显隐：显示时画面略缩，隐藏时画面占满——
@@ -88,6 +92,10 @@ struct PlayerView: View {
             if case .active = phase { showControls() }   // 鼠标移动刷新显示计时
         }
         .background(WindowAccessor { hostingWindow = $0 })
+        .onExitCommand {
+            // Esc：全屏时退出全屏
+            if isFullscreen { exitFullscreen() }
+        }
         .onAppear {
             let key = "\(site.id)#\(vod.vod_id)#\(episode.group)#\(episode.title)"
             controller.setPositionKey(key)
@@ -106,6 +114,7 @@ struct PlayerView: View {
         .onReceive(NotificationCenter.default.publisher(for: .stopPlayerPlayback)) { _ in
             // 播放窗口被 X 关闭（willClose）→ 立即停掉 AVPlayer（否则后台继续出声）
             controller.stop()
+            if isFullscreen { exitFullscreen() }   // 全屏中关窗，恢复菜单栏/Dock
         }
     }
 
@@ -229,14 +238,13 @@ struct PlayerView: View {
                 .font(.caption).foregroundStyle(.white.opacity(0.7))
 
             Button {
-                // keyWindow 在 .plain 按钮点击时不可靠——用视图所在窗口
-                hostingWindow?.toggleFullScreen(nil)
+                toggleFullscreen()
             } label: {
-                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                Image(systemName: isFullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
             }
             .buttonStyle(.plain)
             .foregroundStyle(.white)
-            .help("全屏")
+            .help(isFullscreen ? "退出全屏" : "全屏")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
@@ -292,6 +300,32 @@ struct PlayerView: View {
             }
             resolving = false
         }
+    }
+
+    /// 手动全屏：无边框 + 铺满屏幕 + 隐藏菜单栏/Dock（toggleFullScreen 在
+    /// SwiftUI Window 场景上实测无效，用视频播放器的标准做法）
+    private func toggleFullscreen() {
+        guard let win = hostingWindow,
+              let screen = win.screen ?? NSScreen.main else { return }
+        if !isFullscreen {
+            savedFrame = win.frame
+            win.styleMask.remove([.titled, .closable, .miniaturizable])
+            win.setFrame(screen.frame, display: true, animate: true)
+            NSApp.presentationOptions = [.hideDock, .hideMenuBar]
+            isFullscreen = true
+            PlayerLog.append("⛶ 进入全屏 \(Int(screen.frame.width))×\(Int(screen.frame.height))")
+        } else {
+            exitFullscreen()
+        }
+    }
+
+    private func exitFullscreen() {
+        guard let win = hostingWindow else { return }
+        win.styleMask.insert([.titled, .closable, .miniaturizable])
+        if let f = savedFrame { win.setFrame(f, display: true, animate: true) }
+        NSApp.presentationOptions = []
+        isFullscreen = false
+        PlayerLog.append("⛶ 退出全屏")
     }
 
     /// 播放失败自动换线路：同一集（按组内位置）依次尝试其余播放组；
