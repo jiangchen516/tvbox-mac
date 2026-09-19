@@ -26,6 +26,7 @@ public final class PlayerController: ObservableObject {
     private var lastBufferingState: Bool?
     private var playStartCAC: TimeInterval = 0    // 初始加载超时检测（分段 CDN 无响应）
     private var initialTimeoutFired: Bool = false
+    private var initialTimeoutWork: DispatchWorkItem?
     private var logObservers: [NSObjectProtocol] = []
     private var statusObservation: NSKeyValueObservation?
     private var tcObservation: NSKeyValueObservation?
@@ -126,17 +127,24 @@ public final class PlayerController: ObservableObject {
                 s.error = err.localizedDescription
                 PlayerLog.append("❌ player.error: \(err.localizedDescription)")
             }
-            // 初始加载超时：15 秒内没 readyToPlay 且没缓冲到任何数据——
-            // 分段 CDN 无响应（灰产 CDN 常态），明确提示而不是无限转圈
-            if !s.initialTimeoutFired,
-               CACurrentMediaTime() - s.playStartCAC >= 15,
-               s.player.currentItem?.status != .readyToPlay,
-               s.bufferedTime == 0 {
-                s.initialTimeoutFired = true
-                PlayerLog.append("❌ 初始加载超时：15s 无数据（分段服务器无响应）")
-                s.error = "流服务器 15 秒无数据（分段 CDN 无响应），请换一集/换线路或稍后再试"
-            }
         }
+    }
+
+    /// 初始加载超时：独立定时器（不能用周期时间 observer——AVPlayer 卡死在 t=0 时
+    /// 时间不前进，observer 不触发，实测超时永不执行 → 换线路永不启动）
+    private func scheduleInitialTimeout() {
+        initialTimeoutWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let s = self,
+                  !s.initialTimeoutFired,
+                  s.player.currentItem?.status != .readyToPlay,
+                  s.bufferedTime == 0 else { return }
+            s.initialTimeoutFired = true
+            PlayerLog.append("❌ 初始加载超时：12s 无数据（分段 CDN 无响应）→ 触发换线路")
+            s.error = "流服务器 12 秒无数据（分段 CDN 无响应），自动换线路中…"
+        }
+        initialTimeoutWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 12, execute: work)
     }
 
     /// 起播；headers 通过 AVURLAsset 的 httpHeader 传入（部分源需 UA/Referer）
@@ -154,6 +162,7 @@ public final class PlayerController: ObservableObject {
         player.replaceCurrentItem(with: AVPlayerItem(asset: asset))
         playStartCAC = CACurrentMediaTime()
         initialTimeoutFired = false
+        scheduleInitialTimeout()
         // 断点续播
         if let key = positionKey {
             let pos = UserDefaults.standard.double(forKey: "tvboxpos.\(key)")
@@ -216,6 +225,7 @@ public final class PlayerController: ObservableObject {
     public func stop() {
         PlayerLog.append("⏹ stop t=\(PlayerLog.safeInt(currentTime))s")
         saveTask?.cancel()
+        initialTimeoutWork?.cancel()
         savePosition()
         player.pause()
         player.replaceCurrentItem(with: nil)
