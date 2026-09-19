@@ -99,7 +99,8 @@ struct BrowseView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 16)], spacing: 20) {
+                // 格子宽度上限 150：自适应网格默认会无限变宽（窗口宽时海报太大）
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)], spacing: 20) {
                     ForEach(vods) { vod in
                         VodCard(vod: vod)
                             .onTapGesture { selectedVod = vod }
