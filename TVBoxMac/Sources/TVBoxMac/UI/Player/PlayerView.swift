@@ -9,18 +9,35 @@ import SwiftUI
 /// 绕开 VideoPlayer 背后的 _AVKit_SwiftUI 框架——实测该框架的 Swift 泛型元数据
 /// 在「用 27.0 SDK 编译、跑在 macOS 26.6.2」的组合下 initClassMetadata 直接 abort。
 /// controlsStyle 用 .default：原生控制条自带 播放/暂停、拖进度、音量、全屏、画中画
+/// 子类化 AVPlayerView 处理双击——AVPlayerView 自己消费鼠标事件，
+/// SwiftUI 的 onTapGesture 在它上面收不到（实测双击全屏因此无效）
+final class DoubleClickAVPlayerView: AVPlayerView {
+    var onDoubleClick: (() -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        if event.clickCount >= 2 {
+            onDoubleClick?()
+            return   // 不再传给 AVPlayerView（避免它自身的双击行为干扰）
+        }
+        super.mouseDown(with: event)
+    }
+}
+
 struct PlayerVideoView: NSViewRepresentable {
     let player: AVPlayer
+    var onDoubleClick: (() -> Void) = {}
 
     func makeNSView(context: Context) -> AVPlayerView {
-        let v = AVPlayerView()
+        let v = DoubleClickAVPlayerView()
         v.player = player
         v.controlsStyle = .default
+        v.onDoubleClick = onDoubleClick
         return v
     }
 
     func updateNSView(_ nsView: AVPlayerView, context: Context) {
         if nsView.player !== player { nsView.player = player }
+        (nsView as? DoubleClickAVPlayerView)?.onDoubleClick = onDoubleClick
     }
 }
 
@@ -147,9 +164,7 @@ struct PlayerView: View {
             .contentShape(Rectangle())
             .onTapGesture(count: 2) { toggleFullscreen() }   // 双击全屏/退出
         } else if let url = playUrl {
-            PlayerVideoView(player: controller.player)
-                .contentShape(Rectangle())
-                .onTapGesture(count: 2) { toggleFullscreen() }   // 双击全屏/退出（播放器标准逻辑）
+            PlayerVideoView(player: controller.player, onDoubleClick: { toggleFullscreen() })
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .overlay(alignment: .topTrailing) {
                     // 缓冲屏显：画面右上角（已缓冲位置 + 实测网速）
