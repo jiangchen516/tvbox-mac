@@ -59,15 +59,10 @@ struct SearchAllView: View {
             TextField("在全部站点搜索资源…", text: $keyword)
                 .textFieldStyle(.roundedBorder)
                 .onSubmit { startSearch() }
+            // 按钮去掉：回车直接搜（Enter 提交），搜索中显示停止
             if running {
                 Button("停止") { searchTask?.cancel(); running = false }
-            } else {
-                Button {
-                    startSearch()
-                } label: {
-                    Label("全站搜索", systemImage: "magnifyingglass")
-                }
-                .disabled(keyword.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .buttonStyle(.bordered)
             }
         }
         .padding(16)
