@@ -138,7 +138,10 @@ public actor ManagedAndroidSpiderClient: VodFetching {
         // spider 的 proxy 服务带请求头拉流，手机端 FongMi 用的就是它
         if response.url.contains("/proxy/media/"), let danmaku = response.danmaku,
            let inner = Self.extractProxyM3u8(from: danmaku) {
-            let rewritten = inner.replacingOccurrences(of: "127.0.0.1:\(guestProxyPort)", with: "127.0.0.1:\(hostProxyPort)")
+            // spider 代理端口是 guest+1（9979），转发到 host+1（19979）
+            let rewritten = inner.replacingOccurrences(
+                of: "127.0.0.1:\(guestProxyPort + 1)",
+                with: "127.0.0.1:\(hostProxyPort + 1)")
             PlayerLog.append("▶ 用 spider 代理 URL: \(rewritten.prefix(110))")
             return rewritten
         }
