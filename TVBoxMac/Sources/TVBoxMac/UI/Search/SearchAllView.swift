@@ -16,7 +16,6 @@ struct SearchAllView: View {
     @Environment(\.openWindow) private var openWindow
     @EnvironmentObject private var playerSession: PlayerSession
 
-    @State private var keyword: String = ""
     @State private var groups: [SiteSearchGroup] = []
     @State private var searchedCount: Int = 0
     @State private var totalCount: Int = 0
@@ -37,7 +36,6 @@ struct SearchAllView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            searchBar
             if running {
                 ProgressView(value: Double(searchedCount), total: Double(max(totalCount, 1))) {
                     Text("已搜索 \(searchedCount)/\(totalCount) 站 · 找到 \(foundCount) 条")
@@ -47,25 +45,15 @@ struct SearchAllView: View {
             }
             results
         }
-        .navigationTitle("全站搜索")
+        .navigationTitle("全站搜索：\(appState.allSearchKeyword)")
+        .task(id: appState.allSearchKeyword) {
+            // 侧栏搜索框回车后关键词变化 → 重新扫全部站点
+            startSearch()
+        }
         .onDisappear { searchTask?.cancel() }
         .sheet(item: $hit) { h in
             DetailView(site: h.site, vod: h.vod)
         }
-    }
-
-    private var searchBar: some View {
-        HStack(spacing: 10) {
-            TextField("在全部站点搜索资源…", text: $keyword)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit { startSearch() }
-            // 按钮去掉：回车直接搜（Enter 提交），搜索中显示停止
-            if running {
-                Button("停止") { searchTask?.cancel(); running = false }
-                    .buttonStyle(.bordered)
-            }
-        }
-        .padding(16)
     }
 
     private var results: some View {
@@ -88,8 +76,8 @@ struct SearchAllView: View {
                     }
                     .padding(.horizontal, 16)
                 }
-                if !running, groups.isEmpty, !keyword.isEmpty {
-                    Text("没有找到「\(keyword)」的结果")
+                if !running, groups.isEmpty, !appState.allSearchKeyword.isEmpty {
+                    Text("没有找到「\(appState.allSearchKeyword)」的结果")
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
                         .padding(.top, 40)
@@ -100,7 +88,7 @@ struct SearchAllView: View {
     }
 
     private func startSearch() {
-        let kw = keyword.trimmingCharacters(in: .whitespaces)
+        let kw = appState.allSearchKeyword.trimmingCharacters(in: .whitespaces)
         guard !kw.isEmpty else { return }
         searchTask?.cancel()
         groups = []

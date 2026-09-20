@@ -6,7 +6,8 @@ import TVBoxMacCore
 final class AppState: ObservableObject {
     @Published var configs: [ConfigStore.StoredEntry] = []
     @Published var selectedSite: Site?
-    @Published var showAllSearch: Bool = false   // 全站搜索模式（侧栏顶部入口）
+    @Published var showAllSearch: Bool = false   // 全站搜索模式（侧栏搜索框回车触发）
+    @Published var allSearchKeyword: String = "" // 全站搜索的已提交关键词
     @Published var selectedConfig: LoadedConfig?
     @Published var showSettings: Bool = false
     @Published var banner: String?   // 一次性提示（加载 warning 等）

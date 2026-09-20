@@ -12,21 +12,23 @@ struct HomeView: View {
         }
     }
 
+    @State private var allSearchDraft: String = ""
+
     var body: some View {
         List(selection: $appState.selectedSite) {
             // 全站搜索入口（Section 顶部按钮，不参与站点 selection——类型不能混）
             Section {
-                Button {
-                    appState.showAllSearch = true
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "magnifyingglass.circle.fill").foregroundStyle(.blue)
-                        Text("全站搜索").font(.callout.bold())
-                        Spacer()
+                // 全站搜索框直接放在侧栏：回车 → 右侧显示全部站点的结果
+                TextField("🔍 全站搜索…", text: $allSearchDraft)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.callout)
+                    .onSubmit {
+                        let kw = allSearchDraft.trimmingCharacters(in: .whitespaces)
+                        guard !kw.isEmpty else { return }
+                        appState.allSearchKeyword = kw
+                        appState.showAllSearch = true
                     }
-                }
-                .buttonStyle(.plain)
-                .help("在所有启用站点里搜索资源")
+                    .help("在所有启用站点里搜索资源（回车）")
             }
             ForEach(visibleSites, id: \.id) { site in
                 SiteRow(site: site)
