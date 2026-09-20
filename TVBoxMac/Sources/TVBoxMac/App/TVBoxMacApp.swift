@@ -107,9 +107,7 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 200, ideal: 240)
         } detail: {
             if appState.hasConfig {
-                if appState.showAllSearch {
-                    SearchAllView()
-                } else if let site = appState.selectedSite {
+                if let site = appState.selectedSite {
                     BrowseView(site: site)
                         .id(site.id)   // 站点切换时重建视图，重置 @State（否则显示旧站点内容）
                 } else {
