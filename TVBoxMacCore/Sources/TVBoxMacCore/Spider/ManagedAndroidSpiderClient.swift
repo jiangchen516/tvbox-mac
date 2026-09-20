@@ -232,9 +232,16 @@ public actor ManagedAndroidSpiderClient: VodFetching {
                 // 空串 = spider 正常返回但没有数据。对 csp_ 站点，最常见原因是
                 // 配置的 spider jar 里没有这个 api 类（jar 版本与源不匹配/失效），
                 // 或该源需要 ext 而站点未提供——给用户有指导性的错误
-                let hint = site.api.lowercased().hasPrefix("csp_")
-                    ? "该源的 spider jar 里可能没有 \(site.api) 类（jar 版本不匹配或已失效），或此源需要 ext 配置。请换线路/换配置试试"
-                    : "源返回了空数据（可能已失效）"
+                // search/browse 的空结果只是"没搜到/没数据"，不该提示 jar 不匹配；
+                // categories/detail 空了才是 jar 缺类/失效的信号
+                let hint: String
+                if operation == "search" || operation == "browse" {
+                    hint = "没有找到结果（无匹配或源已失效）"
+                } else if site.api.lowercased().hasPrefix("csp_") {
+                    hint = "该源的 spider jar 里可能没有 \(site.api) 类（jar 版本不匹配或已失效），或此源需要 ext 配置。请换线路/换配置试试"
+                } else {
+                    hint = "源返回了空数据（可能已失效）"
+                }
                 PlayerLog.append("Bridge← \(operation) 空数据 jar=\(jarDescription.prefix(90)) ext=\(extPreview)")
                 throw ManagedAndroidSpiderError.invalidResponse(
                     "Bridge 返回空数据：\(hint)（operation=\(operation), site=\(site.name), api=\(site.api), jar=\(jarDescription.prefix(80))）"

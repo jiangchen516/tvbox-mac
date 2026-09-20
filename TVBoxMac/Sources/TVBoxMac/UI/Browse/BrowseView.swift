@@ -30,12 +30,6 @@ struct BrowseView: View {
         .task(id: currentCategory) {
             if !isSearching { await loadPage(1) }
         }
-        .task(id: searchKeyword) {
-            if !searchKeyword.isEmpty {
-                isSearching = true
-                await loadPage(1)
-            }
-        }
         .sheet(item: $selectedVod) { vod in
             DetailView(site: site, vod: vod)
         }
