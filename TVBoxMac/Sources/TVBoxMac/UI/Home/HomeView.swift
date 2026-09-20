@@ -4,13 +4,6 @@ import TVBoxMacCore
 
 struct HomeView: View {
     @EnvironmentObject var appState: AppState
-    @State private var search: String = ""
-    var visibleSites: [Site] {
-        let base = appState.enabledSites
-        return search.isEmpty ? base : base.filter {
-            $0.name.localizedCaseInsensitiveContains(search) || $0.api.localizedCaseInsensitiveContains(search)
-        }
-    }
 
     @State private var allSearchDraft: String = ""
 
@@ -30,7 +23,7 @@ struct HomeView: View {
                     }
                     .help("在所有启用站点里搜索资源（回车）")
             }
-            ForEach(visibleSites, id: \.id) { site in
+            ForEach(appState.enabledSites, id: \.id) { site in
                 SiteRow(site: site)
                     .tag(site)
                     .contextMenu {
@@ -44,23 +37,6 @@ struct HomeView: View {
         }
         .listStyle(.sidebar)
         .navigationTitle("TVBox")
-        .safeAreaInset(edge: .top) {
-            VStack(spacing: 6) {
-                HStack {
-                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                    TextField("搜索全部站点…", text: $search)
-                        .textFieldStyle(.plain)
-                }
-                .padding(8)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
-                Text("显示 \(visibleSites.count) / \(appState.enabledSites.count)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 4)
-            }
-            .padding(8)
-        }
     }
 }
 
