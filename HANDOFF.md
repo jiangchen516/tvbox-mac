@@ -1,25 +1,32 @@
 # TVBoxMac 交接文档
 
-> 交接时间：2026-09-17 ｜ 仓库：`jiangchen516/tvbox-mac`（private）
+> 交接时间：2026-09-20 ｜ 仓库：`jiangchen516/tvbox-mac`（private）｜ 版本：**0.2.0**（tag `v0.2.0`）
 > 开发方式变更：从「Linux 服务器写码 + GitHub Actions CI 出包」转为 **Mac 本地开发**。
+> 当前工作分支：`feature/managed-android-runtime`（托管安卓运行时，详见 `docs/managed-android-runtime.md`）。
 
 ---
 
-## 1. 当前状态（一句话）
+## 1. 当前状态（2026-09-20）
 
-核心功能链（配置导入 → CatVod 浏览/搜索/详情/选集 → 播放）已通。**P0 bug（IDN 中文域名）
-已在代码层修复**：纯 Swift Punycode（RFC 3492，`Punycode.swift`）兜底 + ICU 优先，
-标准对拍 22/22（与 Python stdlib 一致），待 CI + 真机实测确认。
+核心链路全部打通：配置导入 → 站点浏览/搜索/详情/选集 → 播放（AVPlayer 原生控制条）。
+新增两大能力：
+
+1. **IDN 中文域名修复**（已合入 main）：纯 Swift Punycode（RFC 3492，`Punycode.swift`）
+   兜底 + ICU 优先，Python stdlib 对拍 22/22，真机实测通过。
+2. **托管安卓运行时**（本分支，`docs/managed-android-runtime.md`）：`type=3`/`csp_` jar 源
+   通过内部管理的 headless 模拟器 + DexBridge APK 跑通——**端到端实测验证**
+   （模拟器 boot → Bridge health → 真实 jar 下载 → DexClassLoader → spider init → categories JSON）。
 
 | 项 | 状态 |
 |---|---|
-| Linux 核心库 `TVBoxMacCore` | ✅ 编译通过，**50/50 测试全绿**（Swift 5.10.1） |
-| macOS CI（macos-14 runner） | ⏳ IDNA 修复已提交，待 CI 验证（新 `IDNATests` 两平台都断言真 punycode，应转绿） |
-| 最后一次全绿 CI | ✅ run `35232665274`（commit `0e28385`），artifact `TVBoxMac.app.zip`（435KB）仍可从 Actions 下载 |
-| 用户实测已验证 | ✅ 窗口滚动、裸数组单仓源格式、`.app.zip` artifact 结构 |
-| 已写代码待实测 | ⏳ IDN 中文域名站点请求（Punycode 兜底）、设置页「全部启用/全部禁用」按钮、JSON 错误信息（带响应片段） |
+| 本机构建 + 测试 | ✅ **66/66 全绿**（Xcode 27.0 + `DEVELOPER_DIR` 用法见 §2） |
+| 版本 | ✅ 0.2.0（`make-app-bundle.sh` Info.plist，tag `v0.2.0`） |
+| 托管安卓运行时 | ✅ 端到端实测通过；待做：模拟器随 App 退出清理、启动进度提示 |
+| type=1 源可用性 | ⚠️ 实测 44 个源仅 8 个能播（工具：`scripts/check-sources.py`） |
+| jar 类名不匹配 | ⚠️ 游魂镜像配置的 qiniu jar 缺 DouDouGuard 等类（见 `docs/managed-android-runtime.md`） |
+| 分段 CDN 抖动 | ⚠️ 灰产 CDN 时好时坏（已实证），app 只能超时提示+换线路 |
 
-**注意**：本机实测发现（2026-09-17，Mac，macOS 26.6.2 + CLT Swift 6.4）：
+**注意**：本机实测发现（2026-09-17/20，Mac，macOS 26.6.2 + CLT Swift 6.4）：
 1. `applyingTransform("IDNA")` **本机也返回 nil**（不只 CI runner）——这就是走纯 Swift
    Punycode 兜底的原因（HANDOFF §4.1 方案 b）。
 2. 本机 CLT **不带 XCTest**（只带 Swift Testing 的 `Testing.framework`）→ `swift test`
@@ -27,15 +34,15 @@
    （核心库 `swift build --target TVBoxMacCore` 不受影响）。
    **✅ 已解决（2026-09-17）**：装完整版 Xcode 27.0（App Store）+ `sudo xcodebuild
    -license accept` 后，用 `export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`
-   （不用 sudo 切 xcode-select）即可本机全量构建 + 测试：**51/51 全绿**（含 4 个
-   IDNATests 与新增 Punycode 标准向量）。注意：Xcode 的 swift 在
+   （不用 sudo 切 xcode-select）即可本机全量构建 + 测试。注意：Xcode 的 swift 在
    `Toolchains/XcodeDefault.xctoolchain/usr/bin/swift`（`Developer/usr/bin/swift`
    可能不存在），跑命令时直接用 xcodebuild/swift 或 DEVELOPER_DIR。
 3. **jar 型 Spider 是 TVBox 生态主流形态**（用户实配 1625 个 type3 vs 44 个 type1）：
-   `csp_Xxx` 的 api 是**类名不是 URL**，实现在配置级 `spider` 字段指向的 **`.jar`（安卓
-   dex）**里，macOS 无法运行（已实测 4 个 jar 全是 classes.dex）。已修：路由
-   （csp_/type0/3 → Spider 路径）+ jar 魔数识别 + 说人话报错「jar 型 Spider 暂不支持」；
-   `.js` 型 spider（老约定全局函数）仍可试。见 §4.5。
+   `csp_Xxx` 的 api 是**类名不是 URL**。本分支的托管安卓运行时已让这类源在 Mac 上跑通
+   （见 `docs/managed-android-runtime.md`）；同时发现镜像配置存在 **jar 与 api 类名不匹配**
+   的问题（qiniu jar 缺 DouDouGuard 等类，原版 fty.json 用的是 `./jar/fan.txt`）。
+4. **多份 app 副本会混淆**：`~/Downloads/Telegram Desktop/TVBoxMac.app` 等旧副本曾导致
+   「修复不生效」的假象。`PlayerLog` 首行记录二进制路径+构建时间，日志一眼可辨版本。
 
 ## 2. Mac 本地开发环境
 
