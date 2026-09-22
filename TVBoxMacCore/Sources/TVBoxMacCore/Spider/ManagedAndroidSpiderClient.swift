@@ -355,6 +355,11 @@ public actor ManagedAndroidSpiderClient: VodFetching {
                 return (name, id)
             }
             guard !pairs.isEmpty else {
+                // class 键在但数组为空 = spider 跑通、源站没给数据（实测 dm84 宕机返回 {"class":[],"list":[]}）
+                if rawClasses.isEmpty && (root["class"] != nil || root["classes"] != nil) {
+                    throw ManagedAndroidSpiderError.invalidResponse(
+                        "源站当前无响应或已失效（spider 返回空分类），请稍后重试或换源")
+                }
                 throw ManagedAndroidSpiderError.invalidResponse("分类响应缺少 class/type_id/type_name")
             }
         return CategoryResponse(

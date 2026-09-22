@@ -123,4 +123,44 @@ final class ManagedAndroidSpiderClientTests: XCTestCase {
         let vod = try await client.detail(site: site, vodId: "5")
         XCTAssertEqual(vod.vod_name, "直连片")
     }
+
+    // class 键在但数组为空（dm84 宕机实测返回）：应提示源站无响应，而非格式错误
+    func testCategoriesEmptyClassGivesSourceSiteHint() async throws {
+        let transport = FakeDexTransport(response: AndroidDexBridgeResponse(
+            id: "1", ok: true,
+            data: .object(["parse": .number(0), "jx": .number(0), "filters": .object([:]), "list": .array([]), "class": .array([])])
+        ))
+        let client = ManagedAndroidSpiderClient(transport: transport)
+        let site = Site(name: "测试", api: "csp_Test", type: 3)
+
+        do {
+            _ = try await client.categories(site: site)
+            XCTFail("应当抛出源站无响应错误")
+        } catch let error as ManagedAndroidSpiderError {
+            guard case .invalidResponse = error else {
+                return XCTFail("错误类型不对: \(error)")
+            }
+            XCTAssert(error.localizedDescription.contains("源站当前无响应"), "error.localizedDescription = \(error.localizedDescription)")
+        }
+    }
+
+    // class 键完全缺失：保持原有格式错误信息
+    func testCategoriesMissingClassKeepsFormatError() async throws {
+        let transport = FakeDexTransport(response: AndroidDexBridgeResponse(
+            id: "1", ok: true,
+            data: .object(["list": .array([])])
+        ))
+        let client = ManagedAndroidSpiderClient(transport: transport)
+        let site = Site(name: "测试", api: "csp_Test", type: 3)
+
+        do {
+            _ = try await client.categories(site: site)
+            XCTFail("应当抛出格式错误")
+        } catch let error as ManagedAndroidSpiderError {
+            guard case .invalidResponse = error else {
+                return XCTFail("错误类型不对: \(error)")
+            }
+            XCTAssert(error.localizedDescription.contains("缺少 class/type_id/type_name"), "error.localizedDescription = \(error.localizedDescription)")
+        }
+    }
 }
