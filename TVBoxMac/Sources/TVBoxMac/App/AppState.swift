@@ -13,6 +13,7 @@ final class AppState: ObservableObject {
     @Published var banner: String?   // 一次性提示（加载 warning 等）
 
     let client: TVBoxClient
+    let managedAndroidRuntime: ManagedAndroidSpiderRuntime?
     let configStore = ConfigStore()
     let historyStore = HistoryStore()
 
@@ -23,18 +24,20 @@ final class AppState: ObservableObject {
     }
 
     init() {
-        client = Self.makeClient()
+        let (client, runtime) = Self.makeClient()
+        self.client = client
+        self.managedAndroidRuntime = runtime
         Task {
             await bootstrap()
         }
     }
 
-    private static func makeClient() -> TVBoxClient {
+    private static func makeClient() -> (TVBoxClient, ManagedAndroidSpiderRuntime?) {
         guard let bridgeAPK = Bundle.main.url(
                   forResource: "AndroidDexBridge-release",
                   withExtension: "apk"
               ) else {
-            return TVBoxClient()
+            return (TVBoxClient(), nil)
         }
 
         let sdkRoot = FileManager.default.homeDirectoryForCurrentUser
@@ -53,9 +56,21 @@ final class AppState: ObservableObject {
             controller: controller,
             bridgeAPK: bridgeAPK
         )
-        return TVBoxClient(
-            managedAndroidSpider: ManagedAndroidSpiderClient(transport: runtime)
+        return (
+            TVBoxClient(managedAndroidSpider: ManagedAndroidSpiderClient(transport: runtime)),
+            runtime
         )
+    }
+
+    /// App 退出时清理托管安卓模拟器（有界等待，最多 3 秒）
+    func shutdownManagedRuntime() {
+        guard let runtime = managedAndroidRuntime else { return }
+        let sem = DispatchSemaphore(value: 0)
+        Task.detached {
+            await runtime.stop()
+            sem.signal()
+        }
+        _ = sem.wait(timeout: .now() + 3)
     }
 
     func bootstrap() async {

@@ -14,11 +14,11 @@
 - 惰性启动（`ManagedAndroidSpiderRuntime`）：只有真正请求 jar/csp 站点才拉起模拟器，原生 CatVod 路径零开销
 - Bridge APK 构建脚本（`scripts/build-android-bridge.sh`）+ 打包进 App Resources（存在才打包）
 - **端到端实测通过**（见下文「实测记录」）
+- 模拟器进程随 App 退出清理（applicationWillTerminate → runtime.stop()，有界等待；崩溃残留另议）
 
 尚未完成：
 
 - runtime 远程下载、签名/哈希校验和原子安装（目前 APK 随 App 分发或本地构建）
-- 模拟器进程随 App 退出的清理（现在退出后模拟器进程可能残留）
 - 模拟器启动期间的 UI 进度提示（首启 + 装 APK 约 10–30 秒，用户侧像卡顿）
 - 更多真实 `csp_` jar 的兼容性回归
 

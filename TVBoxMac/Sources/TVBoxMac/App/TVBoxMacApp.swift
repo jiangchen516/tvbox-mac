@@ -15,6 +15,8 @@ struct TVBoxMacApp: App {
                 .environmentObject(appState)
                 .environmentObject(playerSession)
                 .frame(minWidth: 900, minHeight: 560)
+                // 窗口出现时把 appState 交给 AppDelegate（退出时清理模拟器）
+                .onAppear { appDelegate.appState = appState }
         }
         .commands {
             CommandGroup(replacing: .newItem) {}
@@ -88,6 +90,8 @@ extension Notification.Name {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    weak var appState: AppState?
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
     }
@@ -95,6 +99,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // 启动标记：日志第一行记录二进制路径/构建时间，便于确认跑的是哪份包
         PlayerLog.logAppLaunch()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        appState?.shutdownManagedRuntime()
     }
 }
 

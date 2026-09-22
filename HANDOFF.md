@@ -21,7 +21,7 @@
 |---|---|
 | 本机构建 + 测试 | ✅ **66/66 全绿**（Xcode 27.0 + `DEVELOPER_DIR` 用法见 §2） |
 | 版本 | ✅ 0.2.0（`make-app-bundle.sh` Info.plist，tag `v0.2.0`） |
-| 托管安卓运行时 | ✅ 端到端实测通过；待做：模拟器随 App 退出清理、启动进度提示 |
+| 托管安卓运行时 | ✅ 端到端实测通过；待做：启动进度提示 |
 | type=1 源可用性 | ⚠️ 实测 44 个源仅 8 个能播（工具：`scripts/check-sources.py`） |
 | jar 类名不匹配 | ⚠️ 游魂镜像配置的 qiniu jar 缺 DouDouGuard 等类（见 `docs/managed-android-runtime.md`） |
 | 分段 CDN 抖动 | ⚠️ 灰产 CDN 时好时坏（已实证），app 只能超时提示+换线路 |
