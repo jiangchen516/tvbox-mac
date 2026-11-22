@@ -125,8 +125,8 @@ final class AppState: ObservableObject {
     /// 记录当前选中站点（站点切换时调用）
     func rememberSelectedSite() {
         showAllSearch = false
-        showHistory = false
         if let id = selectedSite?.id {
+            showHistory = false
             UserDefaults.standard.set(id, forKey: Self.lastSiteKey)
         }
     }
