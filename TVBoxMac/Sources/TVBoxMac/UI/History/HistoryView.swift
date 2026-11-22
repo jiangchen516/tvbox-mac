@@ -10,6 +10,8 @@ struct HistoryView: View {
     @State private var records: [HistoryRecord] = []
     @State private var loading = true
     @State private var errorMessage: String?
+    @State private var loadingDetailRecordID: String?
+    @State private var selectedDetail: HistoryDetailTarget?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -49,8 +51,10 @@ struct HistoryView: View {
                         ForEach(records) { record in
                             HistoryRow(record: record,
                                        siteName: appState.enabledSites.first(where: { $0.id == record.site })?.name,
+                                       isLoadingDetail: loadingDetailRecordID == record.id,
                                        onNeedImage: { hydrateImage(for: record) },
-                                       onOpen: { openRecord(record) },
+                                       onShowInfo: { showInfo(record) },
+                                       onPlay: { openRecord(record) },
                                        onDelete: { deleteRecord(record) })
                             Divider().padding(.leading, 92)
                         }
@@ -61,7 +65,10 @@ struct HistoryView: View {
         }
         .navigationTitle("观看历史")
         .task { await reload() }
-        .alert("无法恢复播放", isPresented: Binding(
+        .sheet(item: $selectedDetail) { target in
+            DetailView(site: target.site, vod: target.vod)
+        }
+        .alert("历史记录", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
         )) {
@@ -96,6 +103,26 @@ struct HistoryView: View {
         }
     }
 
+    private func showInfo(_ record: HistoryRecord) {
+        guard let site = appState.enabledSites.first(where: { $0.id == record.site }) else {
+            errorMessage = "原站点已被禁用或已从配置中移除"
+            return
+        }
+        loadingDetailRecordID = record.id
+        Task { @MainActor in
+            defer { loadingDetailRecordID = nil }
+            let id = record.vodIdString ?? String(record.vodId)
+            do {
+                let vod = try await appState.client.detail(site: site, vodId: id)
+                PlayerLog.append("🕘 打开历史信息页: \(site.name) \(record.vodName) id=\(id)")
+                selectedDetail = HistoryDetailTarget(site: site, vod: vod)
+            } catch {
+                PlayerLog.append("🕘 历史信息页加载失败: \(site.name) \(record.vodName) - \(error.localizedDescription)")
+                errorMessage = "影片详情加载失败: \(error.localizedDescription)"
+            }
+        }
+    }
+
     private func openRecord(_ record: HistoryRecord) {
         guard let site = appState.enabledSites.first(where: { $0.id == record.site }) else {
             errorMessage = "原站点已被禁用或已从配置中移除"
@@ -126,41 +153,57 @@ struct HistoryView: View {
 private struct HistoryRow: View {
     let record: HistoryRecord
     let siteName: String?
+    let isLoadingDetail: Bool
     let onNeedImage: () -> Void
-    let onOpen: () -> Void
+    let onShowInfo: () -> Void
+    let onPlay: () -> Void
     let onDelete: () -> Void
+
     var body: some View {
         HStack(spacing: 12) {
-            RemoteImage(rawPic: record.vodPic)
-                .frame(width: 56, height: 80)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+            Button(action: onShowInfo) {
+                HStack(spacing: 12) {
+                    RemoteImage(rawPic: record.vodPic)
+                        .frame(width: 56, height: 80)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
 
-            VStack(alignment: .leading, spacing: 5) {
-                Text(record.vodName)
-                    .font(.headline)
-                    .lineLimit(1)
-                Text("\(record.episodeGroup) · \(record.episodeTitle)")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                if let siteName, !siteName.isEmpty {
-                    Text(siteName)
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(record.vodName)
+                            .font(.headline)
+                            .lineLimit(1)
+                        Text("\(record.episodeGroup) · \(record.episodeTitle)")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        if let siteName, !siteName.isEmpty {
+                            Text(siteName)
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+                        }
+                        Text(record.timestamp, style: .relative)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                Text(record.timestamp, style: .relative)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                .contentShape(Rectangle())
             }
-            Spacer()
-            Button(action: onOpen) {
-                Image(systemName: "play.circle")
-                    .font(.title2)
-                    .foregroundStyle(.secondary)
+            .buttonStyle(.plain)
+            .help("打开影片信息和选集")
+
+            if isLoadingDetail {
+                ProgressView().controlSize(.small)
+                    .frame(width: 28, height: 28)
+            } else {
+                Button(action: onPlay) {
+                    Image(systemName: "play.circle")
+                        .font(.title2)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("直接继续播放")
             }
-            .buttonStyle(.borderless)
-            .help("继续播放")
             Button(action: onDelete) {
                 Image(systemName: "trash")
                     .foregroundStyle(.secondary)
@@ -169,12 +212,16 @@ private struct HistoryRow: View {
             .help("删除这条历史")
         }
         .padding(.vertical, 10)
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onOpen)
         .task {
             if record.vodPic == nil { onNeedImage() }
         }
     }
+}
+
+private struct HistoryDetailTarget: Identifiable {
+    let site: Site
+    let vod: Vod
+    var id: String { "\(site.id)#\(vod.id)" }
 }
 
 #Preview {

@@ -94,7 +94,7 @@ final class AppState: ObservableObject {
                         || spiderURL.contains("file.icve.com.cn/file_doc/874/405/DAB654F794")
                     if Self.verifiedGuardAPIs.contains(api), knownMismatchedJar {
                         bound[i].loaded.config.sites[j].jar = Self.verifiedGuardSpiderURL
-                        PlayerLog.append("Guard jar fallback: \(s.api) 使用已验证 fty0903.jar（原配置 qiniu jar 不含该类）")
+                        PlayerLog.append("Guard jar fallback: \(s.api) 使用兼容性实测 fty0903.jar")
                     } else {
                         bound[i].loaded.config.sites[j].jar = spiderURL
                     }
@@ -115,11 +115,12 @@ final class AppState: ObservableObject {
 
     private static let lastSiteKey = "tvboxmac.lastSiteID"
 
-    // 已验证包含 WoGGGuard/DouDouGuard/NmyswvGuard/YCyzGuard 的 dex jar。
-    // 饭太硬当前 qiniu jar 缺少其中部分类，导致游魂下的玩偶/糯米返回空数据。
+    // 已验证包含多种 Guard 实现的 dex jar。对 qiniu 镜像表现异常、且在此 jar
+    // 上直接验证可返回有效分类的 API，优先使用该版本；不是仅凭类名存在就判定兼容。
     private static let verifiedGuardSpiderURL = "https://tv.菜妮丝.top/jar/fty0903.jar"
     private static let verifiedGuardAPIs: Set<String> = [
-        "csp_woggguard", "csp_wogg", "csp_nmyswvguard", "csp_doudouguard", "csp_ycyzguard"
+        "csp_woggguard", "csp_wogg", "csp_nmyswvguard", "csp_doudouguard", "csp_ycyzguard",
+        "csp_jpysguard"
     ]
 
     /// 记录当前选中站点（站点切换时调用）
