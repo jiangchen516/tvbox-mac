@@ -77,9 +77,13 @@ private struct BridgeInvokeRequest: Encodable {
     let providerOwnerID: String
 
     init(request: AndroidDexBridgeRequest) {
-        configurationID = "tvboxmac-default"
+        // Bridge 按 configurationID + siteKey 缓存 spider 实例。固定写成一个
+        // tvboxmac-default 会让 30 份配置、1771 个站点互相污染：同名 Wogg/Nmyswv
+        // 切换后可能复用旧 jar/旧 ext，Android 端通常每份配置使用独立 ID。
+        let scope = Self.scope(for: request.site)
+        configurationID = "tvboxmac-\(scope)"
         hosts = []
-        siteKey = request.site.key
+        siteKey = request.site.key.isEmpty ? request.site.api : request.site.key
         api = request.site.api
         ext = request.site.ext.map { value in
             if case .string(let string) = value { return string }
@@ -131,11 +135,23 @@ private struct BridgeInvokeRequest: Encodable {
         monitorsAuthorization = false
         interactionID = nil
         interactionKind = nil
-        providerOwnerID = "tvboxmac-default:\(request.site.id)"
+        providerOwnerID = "tvboxmac-\(scope):\(request.site.id)"
     }
 
     private static func stringValue(_ value: JSONValue) -> JSONValue {
         .string(value.stringValue ?? "")
+    }
+
+    private static func scope(for site: Site) -> String {
+        let ext = site.ext.map { String(describing: $0) } ?? "-"
+        let raw = "\(site.jar ?? "-")|\(site.api)|\(ext)"
+        // Stable FNV-1a hash；不把完整 URL/ext 放进 Bridge ID，避免超长或特殊字符。
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in raw.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 1_099_511_628_211
+        }
+        return String(format: "%016llx", hash)
     }
 }
 
