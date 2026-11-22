@@ -192,7 +192,9 @@ public actor ManagedAndroidSpiderClient: VodFetching {
     ) async throws -> Data {
         var resolvedSite = site
         if resolvedSite.jar == nil || resolvedSite.jar?.isEmpty == true {
-            resolvedSite.jar = globalSpiderURL
+            // site.spider 是 TVBox 配置允许的站点级实现，优先于配置级全局 jar。
+            // 某些配置把多个 Guard 类放在不同 jar 中，不能统一回退到第一份配置的 jar。
+            resolvedSite.jar = resolvedSite.spider ?? globalSpiderURL
         }
         // 诊断日志：Bridge 请求（含 ext 预览——ext 是 Guard 源最常见的失败原因）
         let extPreview: String

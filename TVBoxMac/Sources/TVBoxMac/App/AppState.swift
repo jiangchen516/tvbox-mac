@@ -86,7 +86,8 @@ final class AppState: ObservableObject {
             for j in bound[i].loaded.config.sites.indices {
                 let s = bound[i].loaded.config.sites[j]
                 let jarEmpty = s.jar == nil || s.jar?.isEmpty == true
-                if jarEmpty && s.api.lowercased().hasPrefix("csp_") {
+                let siteSpiderEmpty = s.spider == nil || s.spider?.isEmpty == true
+                if jarEmpty && siteSpiderEmpty && s.api.lowercased().hasPrefix("csp_") {
                     bound[i].loaded.config.sites[j].jar = spiderURL
                 }
             }
