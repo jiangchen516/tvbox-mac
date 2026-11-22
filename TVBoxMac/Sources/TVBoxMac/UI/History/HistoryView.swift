@@ -47,12 +47,11 @@ struct HistoryView: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(records) { record in
-                            Button { openRecord(record) } label: {
-                                HistoryRow(record: record,
-                                           siteName: appState.enabledSites.first(where: { $0.id == record.site })?.name,
-                                           onNeedImage: { hydrateImage(for: record) })
-                            }
-                            .buttonStyle(.plain)
+                            HistoryRow(record: record,
+                                       siteName: appState.enabledSites.first(where: { $0.id == record.site })?.name,
+                                       onNeedImage: { hydrateImage(for: record) },
+                                       onOpen: { openRecord(record) },
+                                       onDelete: { deleteRecord(record) })
                             Divider().padding(.leading, 92)
                         }
                     }
@@ -75,6 +74,11 @@ struct HistoryView: View {
     private func reload() async {
         records = await appState.historyStore.recent(limit: 100)
         loading = false
+    }
+
+    private func deleteRecord(_ record: HistoryRecord) {
+        records.removeAll { $0.id == record.id }
+        Task { await appState.historyStore.deleteHistory(id: record.id) }
     }
 
     private func hydrateImage(for record: HistoryRecord) {
@@ -120,6 +124,8 @@ private struct HistoryRow: View {
     let record: HistoryRecord
     let siteName: String?
     let onNeedImage: () -> Void
+    let onOpen: () -> Void
+    let onDelete: () -> Void
     var body: some View {
         HStack(spacing: 12) {
             RemoteImage(rawPic: record.vodPic)
@@ -145,12 +151,23 @@ private struct HistoryRow: View {
                     .foregroundStyle(.tertiary)
             }
             Spacer()
-            Image(systemName: "play.circle")
-                .font(.title2)
-                .foregroundStyle(.secondary)
+            Button(action: onOpen) {
+                Image(systemName: "play.circle")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .help("继续播放")
+            Button(action: onDelete) {
+                Image(systemName: "trash")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .help("删除这条历史")
         }
         .padding(.vertical, 10)
         .contentShape(Rectangle())
+        .onTapGesture(perform: onOpen)
         .task {
             if record.vodPic == nil { onNeedImage() }
         }

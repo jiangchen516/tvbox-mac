@@ -97,6 +97,12 @@ public actor HistoryStore {
         try? writeHistory(list)
     }
 
+    public func deleteHistory(id: String) {
+        var list = readHistory()
+        list.removeAll { $0.id == id }
+        try? writeHistory(list)
+    }
+
     public func clearHistory() {
         try? writeHistory([])
     }

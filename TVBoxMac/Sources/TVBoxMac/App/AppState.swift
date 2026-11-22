@@ -90,7 +90,9 @@ final class AppState: ObservableObject {
                 let siteSpiderEmpty = s.spider == nil || s.spider?.isEmpty == true
                 if jarEmpty && siteSpiderEmpty && s.api.lowercased().hasPrefix("csp_") {
                     let api = s.api.lowercased()
-                    if Self.verifiedGuardAPIs.contains(api), spiderURL.contains("qiniu.gongxueyun.com") {
+                    let knownMismatchedJar = spiderURL.contains("qiniu.gongxueyun.com")
+                        || spiderURL.contains("file.icve.com.cn/file_doc/874/405/DAB654F794")
+                    if Self.verifiedGuardAPIs.contains(api), knownMismatchedJar {
                         bound[i].loaded.config.sites[j].jar = Self.verifiedGuardSpiderURL
                         PlayerLog.append("Guard jar fallback: \(s.api) 使用已验证 fty0903.jar（原配置 qiniu jar 不含该类）")
                     } else {
