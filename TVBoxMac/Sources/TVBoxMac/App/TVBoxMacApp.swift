@@ -37,6 +37,7 @@ struct TVBoxMacApp: App {
 @MainActor
 final class PlayerSession: ObservableObject {
     @Published var payload: PlayerPayload?
+    @Published var isPreparing: Bool = false
 }
 
 /// 播放器窗口的载荷
@@ -63,6 +64,13 @@ struct PlayerWindowView: View {
                                session.payload?.episode = newEp
                            })
                     .id(p.episode.id)   // 切集重建播放器（重新解析地址）
+            } else if session.isPreparing {
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text("正在准备播放…")
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 // 系统状态恢复出来的空播放窗口（崩溃/异常退出后残留）→ 自动关掉，
                 // 不留下空白播放窗口

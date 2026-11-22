@@ -101,6 +101,8 @@ struct HistoryView: View {
             errorMessage = "原站点已被禁用或已从配置中移除"
             return
         }
+        playerSession.isPreparing = true
+        openWindow(id: "player")
         Task { @MainActor in
             let id = record.vodIdString ?? String(record.vodId)
             PlayerLog.append("🕘 恢复历史: \(site.name) \(record.vodName) id=\(id) 组=\(record.episodeGroup) 集=\(record.episodeTitle)")
@@ -110,12 +112,13 @@ struct HistoryView: View {
             let episodes = vod.episodes(group: record.episodeGroup)
             guard let episode = episodes.first(where: { $0.title == record.episodeTitle }) ?? episodes.first else {
                 PlayerLog.append("🕘 历史恢复失败：详情没有集数 site=\(site.name) id=\(id)")
+                playerSession.isPreparing = false
                 errorMessage = "该影片当前没有可播放的集数，可能是源已更新或失效"
                 return
             }
             playerSession.payload = PlayerPayload(
                 site: site, vod: vod, episode: episode, episodes: episodes)
-            openWindow(id: "player")
+            playerSession.isPreparing = false
         }
     }
 }
