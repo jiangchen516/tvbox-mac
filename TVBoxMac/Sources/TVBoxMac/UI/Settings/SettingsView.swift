@@ -10,6 +10,7 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var configURL: String = ""
     @State private var importing: Bool = false
+    @AppStorage("tvboxmac.prewarmManagedAndroidRuntime") private var prewarmAndroidRuntime = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -42,6 +43,22 @@ struct SettingsView: View {
                                     .font(.caption)
                                     .foregroundStyle(banner.hasPrefix("导入失败") ? .red : .orange)
                                     .textSelection(.enabled)
+                            }
+                        }
+                        .padding(4)
+                    }
+
+                    GroupBox("Android Spider 性能") {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Toggle("启动时预热 Android Runtime", isOn: $prewarmAndroidRuntime)
+                                .disabled(appState.managedAndroidRuntime == nil)
+                            Text("开启后，下次启动 App 时会在后台启动 Android 模拟器和 Bridge，但不读取任何站点。第一次启动仍需等待；之后首次打开 jar 源会更快。此选项会额外占用内存和 CPU。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            if appState.managedAndroidRuntime == nil {
+                                Text("当前 App 包没有包含 Android Bridge，预热不可用。")
+                                    .font(.caption)
+                                    .foregroundStyle(.orange)
                             }
                         }
                         .padding(4)

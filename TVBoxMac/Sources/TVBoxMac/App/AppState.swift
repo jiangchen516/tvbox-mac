@@ -30,6 +30,7 @@ final class AppState: ObservableObject {
         self.managedAndroidRuntime = runtime
         Task {
             await bootstrap()
+            startAndroidRuntimePrewarmIfEnabled()
             await refreshEnabledRemoteConfigsOnStartup()
         }
     }
@@ -153,6 +154,31 @@ final class AppState: ObservableObject {
     }
 
     private static let lastSiteKey = "tvboxmac.lastSiteID"
+    private static let prewarmAndroidRuntimeKey = "tvboxmac.prewarmManagedAndroidRuntime"
+
+    private func startAndroidRuntimePrewarmIfEnabled() {
+        guard UserDefaults.standard.bool(forKey: Self.prewarmAndroidRuntimeKey) else { return }
+        guard let runtime = managedAndroidRuntime else {
+            PlayerLog.append("Android Runtime 预热已启用，但当前 App 包没有 Bridge APK")
+            return
+        }
+        guard enabledSites.contains(where: { $0.type == 3 || $0.api.lowercased().hasPrefix("csp_") }) else {
+            PlayerLog.append("Android Runtime 预热跳过：没有启用的 Dex Spider 站点")
+            return
+        }
+
+        PlayerLog.append("Android Runtime 预热: 后台启动 Emulator/Bridge（不会请求站点数据）")
+        Task.detached(priority: .utility) {
+            let start = Date()
+            do {
+                try await runtime.prepare()
+                let elapsed = Date().timeIntervalSince(start)
+                PlayerLog.append(String(format: "Android Runtime 预热完成，耗时 %.1fs", elapsed))
+            } catch {
+                PlayerLog.append("Android Runtime 预热失败，首次打开 Dex 源时将重试: \(error.localizedDescription)")
+            }
+        }
+    }
 
     // 已验证包含多种 Guard 实现的 dex jar。对 qiniu 镜像表现异常、且在此 jar
     // 上直接验证可返回有效分类的 API，优先使用该版本；不是仅凭类名存在就判定兼容。
