@@ -19,7 +19,15 @@ struct DetailView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            if !currentGroup.isEmpty {
+            if loadingDetail {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("正在加载影片信息和选集…")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if !currentGroup.isEmpty {
                 groupPicker
                 episodeGrid
             }

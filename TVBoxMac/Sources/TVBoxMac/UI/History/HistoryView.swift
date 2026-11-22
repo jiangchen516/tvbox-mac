@@ -10,7 +10,6 @@ struct HistoryView: View {
     @State private var records: [HistoryRecord] = []
     @State private var loading = true
     @State private var errorMessage: String?
-    @State private var loadingDetailRecordID: String?
     @State private var selectedDetail: HistoryDetailTarget?
 
     var body: some View {
@@ -51,7 +50,6 @@ struct HistoryView: View {
                         ForEach(records) { record in
                             HistoryRow(record: record,
                                        siteName: appState.enabledSites.first(where: { $0.id == record.site })?.name,
-                                       isLoadingDetail: loadingDetailRecordID == record.id,
                                        onNeedImage: { hydrateImage(for: record) },
                                        onShowInfo: { showInfo(record) },
                                        onPlay: { openRecord(record) },
@@ -108,19 +106,13 @@ struct HistoryView: View {
             errorMessage = "原站点已被禁用或已从配置中移除"
             return
         }
-        loadingDetailRecordID = record.id
-        Task { @MainActor in
-            defer { loadingDetailRecordID = nil }
-            let id = record.vodIdString ?? String(record.vodId)
-            do {
-                let vod = try await appState.client.detail(site: site, vodId: id)
-                PlayerLog.append("🕘 打开历史信息页: \(site.name) \(record.vodName) id=\(id)")
-                selectedDetail = HistoryDetailTarget(site: site, vod: vod)
-            } catch {
-                PlayerLog.append("🕘 历史信息页加载失败: \(site.name) \(record.vodName) - \(error.localizedDescription)")
-                errorMessage = "影片详情加载失败: \(error.localizedDescription)"
-            }
-        }
+        let id = record.vodIdString ?? String(record.vodId)
+        var fallback = Vod(vod_id: record.vodId, vod_name: record.vodName, vod_pic: record.vodPic)
+        fallback.vodIdString = record.vodIdString
+        PlayerLog.append("🕘 点击历史信息页: \(site.name) \(record.vodName) id=\(id)")
+        // 先立即打开已保存的影片信息，再由 DetailView 自己补拉详情和剧集；
+        // 慢源也能马上给出反馈，不会让点击看起来无响应。
+        selectedDetail = HistoryDetailTarget(site: site, vod: fallback)
     }
 
     private func openRecord(_ record: HistoryRecord) {
@@ -128,10 +120,12 @@ struct HistoryView: View {
             errorMessage = "原站点已被禁用或已从配置中移除"
             return
         }
+        let id = record.vodIdString ?? String(record.vodId)
+        PlayerLog.append("🕘 点击历史播放: \(site.name) \(record.vodName) id=\(id)")
+        playerSession.payload = nil
         playerSession.isPreparing = true
         openWindow(id: "player")
         Task { @MainActor in
-            let id = record.vodIdString ?? String(record.vodId)
             PlayerLog.append("🕘 恢复历史: \(site.name) \(record.vodName) id=\(id) 组=\(record.episodeGroup) 集=\(record.episodeTitle)")
             var fallback = Vod(vod_id: record.vodId, vod_name: record.vodName, vod_pic: record.vodPic)
             fallback.vodIdString = record.vodIdString
@@ -153,7 +147,6 @@ struct HistoryView: View {
 private struct HistoryRow: View {
     let record: HistoryRecord
     let siteName: String?
-    let isLoadingDetail: Bool
     let onNeedImage: () -> Void
     let onShowInfo: () -> Void
     let onPlay: () -> Void
@@ -192,18 +185,13 @@ private struct HistoryRow: View {
             .buttonStyle(.plain)
             .help("打开影片信息和选集")
 
-            if isLoadingDetail {
-                ProgressView().controlSize(.small)
-                    .frame(width: 28, height: 28)
-            } else {
-                Button(action: onPlay) {
-                    Image(systemName: "play.circle")
-                        .font(.title2)
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.borderless)
-                .help("直接继续播放")
+            Button(action: onPlay) {
+                Image(systemName: "play.circle")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
             }
+            .buttonStyle(.borderless)
+            .help("直接继续播放")
             Button(action: onDelete) {
                 Image(systemName: "trash")
                     .foregroundStyle(.secondary)
