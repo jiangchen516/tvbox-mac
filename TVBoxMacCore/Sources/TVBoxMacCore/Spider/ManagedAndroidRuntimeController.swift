@@ -1,4 +1,9 @@
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 public struct AndroidRuntimeToolchain: Sendable, Equatable {
     public let sdkRoot: URL
@@ -42,6 +47,8 @@ public actor ManagedAndroidRuntimeController {
     public let toolchain: AndroidRuntimeToolchain
     public let avdName: String
     public let consolePort: Int
+    /// Dedicated ADB server port so shutdown never kills another Android tool's server.
+    public let adbServerPort: Int
     public let hostBridgePort: Int
     public let guestBridgePort: Int
     private let avdHome: URL
@@ -52,6 +59,7 @@ public actor ManagedAndroidRuntimeController {
         sdkRoot: URL,
         avdName: String,
         consolePort: Int = 5556,
+        adbServerPort: Int = 5_038,
         hostBridgePort: Int = 19_978,
         guestBridgePort: Int = 9_978,
         avdHome: URL,
@@ -60,6 +68,7 @@ public actor ManagedAndroidRuntimeController {
         self.toolchain = AndroidRuntimeToolchain(sdkRoot: sdkRoot)
         self.avdName = avdName
         self.consolePort = consolePort
+        self.adbServerPort = adbServerPort
         self.hostBridgePort = hostBridgePort
         self.guestBridgePort = guestBridgePort
         self.avdHome = avdHome
@@ -89,10 +98,31 @@ public actor ManagedAndroidRuntimeController {
     }
 
     public func stop() {
-        if let process = emulatorProcess, process.isRunning {
+        guard let process = emulatorProcess else { return }
+        if process.isRunning {
             process.terminate()
+            let gracefulDeadline = Date().addingTimeInterval(1.5)
+            while process.isRunning && Date() < gracefulDeadline {
+                Thread.sleep(forTimeInterval: 0.05)
+            }
+            if process.isRunning {
+                #if canImport(Darwin)
+                _ = Darwin.kill(process.processIdentifier, SIGKILL)
+                #elseif canImport(Glibc)
+                _ = Glibc.kill(process.processIdentifier, SIGKILL)
+                #endif
+            }
         }
         emulatorProcess = nil
+
+        // The server uses a TVBoxMac-specific port, so shutting it down cannot
+        // terminate Android Studio or another tool's default adb server (5037).
+        do {
+            _ = try runADB(["kill-server"], timeout: 1, deviceScoped: false)
+            PlayerLog.append("Android Runtime 已停止；专用 ADB server 已关闭（port=\(adbServerPort)）")
+        } catch {
+            PlayerLog.append("Android Runtime 已停止；专用 ADB server 清理结果: \(error.localizedDescription)")
+        }
     }
 
     private func launchEmulator() throws {
@@ -111,6 +141,7 @@ public actor ManagedAndroidRuntimeController {
         environment["ANDROID_EMULATOR_HOME"] = userHome.path
         environment["ANDROID_HOME"] = toolchain.sdkRoot.path
         environment["ANDROID_SDK_ROOT"] = toolchain.sdkRoot.path
+        environment["ANDROID_ADB_SERVER_PORT"] = String(adbServerPort)
         environment["PATH"] = [
             toolchain.sdkRoot.appendingPathComponent("platform-tools").path,
             toolchain.sdkRoot.appendingPathComponent("emulator").path,
@@ -157,17 +188,22 @@ public actor ManagedAndroidRuntimeController {
         throw AndroidRuntimeControllerError.bridgeHealthTimeout
     }
 
-    private func runADB(_ arguments: [String], timeout: TimeInterval = 30) throws -> String {
+    private func runADB(
+        _ arguments: [String],
+        timeout: TimeInterval = 30,
+        deviceScoped: Bool = true
+    ) throws -> String {
         let process = Process()
         let output = Pipe()
         let error = Pipe()
         process.executableURL = toolchain.adb
-        process.arguments = ["-s", "emulator-\(consolePort)"] + arguments
+        process.arguments = (deviceScoped ? ["-s", "emulator-\(consolePort)"] : []) + arguments
         process.standardOutput = output
         process.standardError = error
         var environment = ProcessInfo.processInfo.environment
         environment["ANDROID_HOME"] = toolchain.sdkRoot.path
         environment["ANDROID_SDK_ROOT"] = toolchain.sdkRoot.path
+        environment["ANDROID_ADB_SERVER_PORT"] = String(adbServerPort)
         process.environment = environment
         do {
             try process.run()
