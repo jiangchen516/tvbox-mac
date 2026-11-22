@@ -22,6 +22,15 @@ struct HomeView: View {
                         appState.showAllSearch = true
                     }
                     .help("在所有启用站点里搜索资源（回车）")
+
+                Button {
+                    appState.showAllSearch = false
+                    appState.showHistory = true
+                } label: {
+                    Label("观看历史", systemImage: "clock.arrow.circlepath")
+                }
+                .buttonStyle(.borderless)
+                .help("查看最近播放的影片和集数")
             }
             ForEach(appState.enabledSites, id: \.id) { site in
                 SiteRow(site: site)

@@ -7,6 +7,7 @@ final class AppState: ObservableObject {
     @Published var configs: [ConfigStore.StoredEntry] = []
     @Published var selectedSite: Site?
     @Published var showAllSearch: Bool = false   // 全站搜索模式（侧栏搜索框回车触发）
+    @Published var showHistory: Bool = false     // 观看历史页面
     @Published var allSearchKeyword: String = "" // 全站搜索的已提交关键词
     @Published var selectedConfig: LoadedConfig?
     @Published var showSettings: Bool = false
@@ -109,6 +110,7 @@ final class AppState: ObservableObject {
     /// 记录当前选中站点（站点切换时调用）
     func rememberSelectedSite() {
         showAllSearch = false
+        showHistory = false
         if let id = selectedSite?.id {
             UserDefaults.standard.set(id, forKey: Self.lastSiteKey)
         }

@@ -326,9 +326,10 @@ struct PlayerView: View {
                 }
                 // 历史记录
                 await appState.historyStore.addHistory(
-                    HistoryRecord(site: site.id, vodId: vod.vod_id, vodName: vod.vod_name,
-                                  episodeTitle: episode.title, episodeGroup: episode.group,
-                                  position: 0))
+                    HistoryRecord(site: site.id, vodId: vod.vod_id,
+                                  vodIdString: vod.displayId, vodName: vod.vod_name,
+                                  vodPic: vod.vod_pic, episodeTitle: episode.title,
+                                  episodeGroup: episode.group, position: 0))
                 controller.play(url: url, headers: headers)
                 playUrl = url
             } catch {

@@ -4,19 +4,24 @@ import Foundation
 public struct HistoryRecord: Codable, Sendable, Identifiable {
     public var site: String            // 站点 key
     public var vodId: Int
+    public var vodIdString: String?
     public var vodName: String
+    public var vodPic: String?
     public var episodeTitle: String
     public var episodeGroup: String
     public var position: Double        // 秒
     public var timestamp: Date
 
-    public var id: String { "\(site)#\(vodId)#\(episodeGroup)#\(episodeTitle)" }
+    public var id: String { "\(site)#\(vodIdString ?? String(vodId))#\(episodeGroup)#\(episodeTitle)" }
 
-    public init(site: String, vodId: Int, vodName: String, episodeTitle: String,
-                episodeGroup: String, position: Double, timestamp: Date = .now) {
+    public init(site: String, vodId: Int, vodIdString: String? = nil, vodName: String,
+                vodPic: String? = nil, episodeTitle: String, episodeGroup: String,
+                position: Double, timestamp: Date = .now) {
         self.site = site
         self.vodId = vodId
+        self.vodIdString = vodIdString
         self.vodName = vodName
+        self.vodPic = vodPic
         self.episodeTitle = episodeTitle
         self.episodeGroup = episodeGroup
         self.position = position
@@ -74,7 +79,13 @@ public actor HistoryStore {
 
     /// 某 vod 的断点续播位置
     public func positionFor(site: String, vodId: Int) -> (episodeTitle: String, episodeGroup: String, position: Double)? {
-        guard let r = readHistory().first(where: { $0.site == site && $0.vodId == vodId }) else { return nil }
+        positionFor(site: site, vodId: String(vodId))
+    }
+
+    public func positionFor(site: String, vodId: String) -> (episodeTitle: String, episodeGroup: String, position: Double)? {
+        guard let r = readHistory().first(where: {
+            $0.site == site && ($0.vodIdString ?? String($0.vodId)) == vodId
+        }) else { return nil }
         return (r.episodeTitle, r.episodeGroup, r.position)
     }
 
