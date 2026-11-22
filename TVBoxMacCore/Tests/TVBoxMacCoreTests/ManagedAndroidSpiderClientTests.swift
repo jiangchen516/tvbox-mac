@@ -2,15 +2,22 @@ import XCTest
 @testable import TVBoxMacCore
 
 private actor FakeDexTransport: AndroidDexBridgeTransport {
-    let response: AndroidDexBridgeResponse
+    private let responses: [AndroidDexBridgeResponse]
+    private var responseIndex = 0
     private(set) var lastSentRequest: AndroidDexBridgeRequest?
 
     init(response: AndroidDexBridgeResponse) {
-        self.response = response
+        self.responses = [response]
+    }
+
+    init(responses: [AndroidDexBridgeResponse]) {
+        self.responses = responses
     }
 
     func send(_ request: AndroidDexBridgeRequest) async throws -> AndroidDexBridgeResponse {
         lastSentRequest = request
+        let response = responses[min(responseIndex, responses.count - 1)]
+        responseIndex += 1
         return response
     }
 
@@ -31,6 +38,71 @@ final class ManagedAndroidSpiderClientTests: XCTestCase {
         let categories = try await client.categories(site: site)
 
         XCTAssertEqual(categories, ["电影", "电视剧"])
+    }
+
+    func testSpiderPageDecodesStringPageNumberAndVodStringID() async throws {
+        let transport = FakeDexTransport(response: AndroidDexBridgeResponse(
+            id: "1", ok: true,
+            data: .object([
+                "page": .string("1"),
+                "pagecount": .number(2_147_483_647),
+                "limit": .number(29),
+                "total": .number(2_147_483_647),
+                "list": .array([.object([
+                    "vod_id": .string("/vod-detail-id-112330.html"),
+                    "vod_name": .string("远方的魔法树"),
+                    "vod_pic": .string("https://img.example/poster.jpg"),
+                    "vod_remarks": .string("HD中字")
+                ])])
+            ])
+        ))
+        let client = ManagedAndroidSpiderClient(transport: transport)
+        let site = Site(key: "糯米", name: "糯米", api: "csp_NmyswvGuard", type: 3)
+
+        let result = try await client.search(site: site, keyword: "测试", page: 1)
+
+        XCTAssertEqual(result.page, 1)
+        XCTAssertEqual(result.pagecount, 2_147_483_647)
+        XCTAssertEqual(result.limit, 29)
+        XCTAssertEqual(result.list.first?.displayId, "/vod-detail-id-112330.html")
+        XCTAssertEqual(result.list.first?.vod_name, "远方的魔法树")
+    }
+
+    func testBrowseDecodesGuardStringPageNumber() async throws {
+        let transport = FakeDexTransport(responses: [
+            AndroidDexBridgeResponse(
+                id: "1", ok: true,
+                data: .object(["class": .array([.object([
+                    "type_name": .string("电影"),
+                    "type_id": .string("1")
+                ])])])
+            ),
+            AndroidDexBridgeResponse(
+                id: "2", ok: true,
+                data: .object([
+                    "page": .string("1"),
+                    "pagecount": .number(2_147_483_647),
+                    "limit": .number(29),
+                    "total": .number(2_147_483_647),
+                    "list": .array([.object([
+                        "vod_id": .string("/vod-detail-id-112330.html"),
+                        "vod_name": .string("远方的魔法树"),
+                        "vod_pic": .string("https://img.example/poster.jpg"),
+                        "vod_remarks": .string("HD中字")
+                    ])])
+                ])
+            )
+        ])
+        let client = ManagedAndroidSpiderClient(transport: transport)
+        let site = Site(key: "糯米", name: "糯米", api: "csp_NmyswvGuard", type: 3)
+
+        let result = try await client.browse(site: site, category: "电影", page: 1)
+
+        XCTAssertEqual(result.page, 1)
+        XCTAssertEqual(result.pagecount, 2_147_483_647)
+        XCTAssertEqual(result.limit, 29)
+        XCTAssertEqual(result.list.first?.displayId, "/vod-detail-id-112330.html")
+        XCTAssertEqual(result.list.first?.vod_name, "远方的魔法树")
     }
 
     func testPlayResponseRequiresUrl() async throws {

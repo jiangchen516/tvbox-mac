@@ -288,24 +288,28 @@ public actor ManagedAndroidSpiderClient: VodFetching {
         }
     }
 
-    private func decodeSpiderPage(from data: Data, page: Int, operation: String) throws -> VodPage {
-        if let page = try? decode(VodPage.self, from: data) {
-            return page
-        }
-        struct SpiderEnvelope: Decodable {
-            let list: [Vod]?
-            let page: Int?
-            let pagecount: Int?
-            let total: Int?
-        }
+    private func decodeSpiderPage(from data: Data, page requestedPage: Int, operation: String) throws -> VodPage {
         do {
-            let envelope = try JSONDecoder().decode(SpiderEnvelope.self, from: data)
-            let list = envelope.list ?? []
+            // Guard Spider（糯米等）常把 page/pagecount/total 编成字符串，
+            // 而 CatVod 则常用数字。先解成 JSONValue，再逐项宽容转换，避免
+            // page="1" 令整个 VodPage/合成 envelope 解码失败。
+            let value = try JSONDecoder().decode(JSONValue.self, from: data)
+            guard case .object(let root) = value else {
+                throw ManagedAndroidSpiderError.invalidResponse("响应根节点不是 JSON 对象")
+            }
+            let rawList = LenientJSON.valueArray(root["list"])
+            let list = try rawList.map { item -> Vod in
+                let itemData = try JSONEncoder().encode(item)
+                return try JSONDecoder().decode(Vod.self, from: itemData)
+            }
+            let resolvedPage = LenientJSON.int(root["page"]) ?? requestedPage
+            let pageCount = LenientJSON.int(root["pagecount"])
+                ?? (list.isEmpty ? resolvedPage : resolvedPage + 1)
             return VodPage(
-                page: envelope.page ?? page,
-                pagecount: envelope.pagecount ?? (list.isEmpty ? page : page + 1),
-                limit: 20,
-                total: envelope.total ?? list.count,
+                page: resolvedPage,
+                pagecount: pageCount,
+                limit: LenientJSON.int(root["limit"]) ?? 20,
+                total: LenientJSON.int(root["total"]) ?? list.count,
                 list: list
             )
         } catch {
