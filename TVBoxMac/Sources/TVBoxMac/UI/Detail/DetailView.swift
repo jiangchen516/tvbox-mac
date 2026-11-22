@@ -30,6 +30,22 @@ struct DetailView: View {
             } else if !currentGroup.isEmpty {
                 groupPicker
                 episodeGrid
+            } else {
+                VStack(spacing: 10) {
+                    Image(systemName: "rectangle.stack.badge.xmark")
+                        .font(.title2)
+                        .foregroundStyle(.secondary)
+                    Text("此源没有返回剧集信息")
+                        .font(.headline)
+                    Text("详情接口未提供播放线路或集数。可重试，或换一个源查看。")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                    Button("重试") { loadDetail() }
+                        .buttonStyle(.bordered)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(24)
             }
         }
         .onAppear { loadDetail() }
