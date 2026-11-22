@@ -89,6 +89,14 @@ public actor HistoryStore {
         return (r.episodeTitle, r.episodeGroup, r.position)
     }
 
+    public func updateHistoryMetadata(id: String, vodPic: String?, vodIdString: String?) {
+        var list = readHistory()
+        guard let index = list.firstIndex(where: { $0.id == id }) else { return }
+        if let vodPic, !vodPic.isEmpty { list[index].vodPic = vodPic }
+        if let vodIdString, !vodIdString.isEmpty { list[index].vodIdString = vodIdString }
+        try? writeHistory(list)
+    }
+
     public func clearHistory() {
         try? writeHistory([])
     }

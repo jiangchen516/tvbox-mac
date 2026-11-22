@@ -49,7 +49,8 @@ struct HistoryView: View {
                         ForEach(records) { record in
                             Button { openRecord(record) } label: {
                                 HistoryRow(record: record,
-                                           siteName: appState.enabledSites.first(where: { $0.id == record.site })?.name)
+                                           siteName: appState.enabledSites.first(where: { $0.id == record.site })?.name,
+                                           onNeedImage: { hydrateImage(for: record) })
                             }
                             .buttonStyle(.plain)
                             Divider().padding(.leading, 92)
@@ -76,18 +77,35 @@ struct HistoryView: View {
         loading = false
     }
 
+    private func hydrateImage(for record: HistoryRecord) {
+        guard record.vodPic == nil,
+              let site = appState.enabledSites.first(where: { $0.id == record.site }) else { return }
+        Task {
+            let id = record.vodIdString ?? String(record.vodId)
+            guard let vod = try? await appState.client.detail(site: site, vodId: id),
+                  let pic = vod.vod_pic, !pic.isEmpty else { return }
+            if let index = records.firstIndex(where: { $0.id == record.id }) {
+                records[index].vodPic = pic
+            }
+            await appState.historyStore.updateHistoryMetadata(
+                id: record.id, vodPic: pic, vodIdString: vod.displayId)
+        }
+    }
+
     private func openRecord(_ record: HistoryRecord) {
         guard let site = appState.enabledSites.first(where: { $0.id == record.site }) else {
             errorMessage = "原站点已被禁用或已从配置中移除"
             return
         }
-        Task {
+        Task { @MainActor in
             let id = record.vodIdString ?? String(record.vodId)
+            PlayerLog.append("🕘 恢复历史: \(site.name) \(record.vodName) id=\(id) 组=\(record.episodeGroup) 集=\(record.episodeTitle)")
             var fallback = Vod(vod_id: record.vodId, vod_name: record.vodName, vod_pic: record.vodPic)
             fallback.vodIdString = record.vodIdString
             let vod = (try? await appState.client.detail(site: site, vodId: id)) ?? fallback
             let episodes = vod.episodes(group: record.episodeGroup)
             guard let episode = episodes.first(where: { $0.title == record.episodeTitle }) ?? episodes.first else {
+                PlayerLog.append("🕘 历史恢复失败：详情没有集数 site=\(site.name) id=\(id)")
                 errorMessage = "该影片当前没有可播放的集数，可能是源已更新或失效"
                 return
             }
@@ -101,7 +119,7 @@ struct HistoryView: View {
 private struct HistoryRow: View {
     let record: HistoryRecord
     let siteName: String?
-
+    let onNeedImage: () -> Void
     var body: some View {
         HStack(spacing: 12) {
             RemoteImage(rawPic: record.vodPic)
@@ -133,6 +151,9 @@ private struct HistoryRow: View {
         }
         .padding(.vertical, 10)
         .contentShape(Rectangle())
+        .task {
+            if record.vodPic == nil { onNeedImage() }
+        }
     }
 }
 

@@ -89,7 +89,13 @@ final class AppState: ObservableObject {
                 let jarEmpty = s.jar == nil || s.jar?.isEmpty == true
                 let siteSpiderEmpty = s.spider == nil || s.spider?.isEmpty == true
                 if jarEmpty && siteSpiderEmpty && s.api.lowercased().hasPrefix("csp_") {
-                    bound[i].loaded.config.sites[j].jar = spiderURL
+                    let api = s.api.lowercased()
+                    if Self.verifiedGuardAPIs.contains(api), spiderURL.contains("qiniu.gongxueyun.com") {
+                        bound[i].loaded.config.sites[j].jar = Self.verifiedGuardSpiderURL
+                        PlayerLog.append("Guard jar fallback: \(s.api) 使用已验证 fty0903.jar（原配置 qiniu jar 不含该类）")
+                    } else {
+                        bound[i].loaded.config.sites[j].jar = spiderURL
+                    }
                 }
             }
         }
@@ -106,6 +112,13 @@ final class AppState: ObservableObject {
     }
 
     private static let lastSiteKey = "tvboxmac.lastSiteID"
+
+    // 已验证包含 WoGGGuard/DouDouGuard/NmyswvGuard/YCyzGuard 的 dex jar。
+    // 饭太硬当前 qiniu jar 缺少其中部分类，导致游魂下的玩偶/糯米返回空数据。
+    private static let verifiedGuardSpiderURL = "https://tv.菜妮丝.top/jar/fty0903.jar"
+    private static let verifiedGuardAPIs: Set<String> = [
+        "csp_woggguard", "csp_wogg", "csp_nmyswvguard", "csp_doudouguard", "csp_ycyzguard"
+    ]
 
     /// 记录当前选中站点（站点切换时调用）
     func rememberSelectedSite() {
