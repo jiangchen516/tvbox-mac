@@ -79,10 +79,8 @@ struct PlayerView: View {
     @State private var controlsVisible: Bool = false
     @State private var controlsIdleTask: Task<Void, Never>?
     @State private var hostingWindow: NSWindow?
-    // 手动全屏（不依赖 macOS toggleFullScreen——实测在 SwiftUI Window 上不生效）：
-    // 无边框 + 屏幕尺寸 + 隐藏菜单栏/Dock
+    // 由 NSWindow 原生全屏通知同步，macOS 会将窗口移入独立 Space。
     @State private var isFullscreen: Bool = false
-    @State private var savedFrame: NSRect?
     // 本地事件监听器：AVPlayerView 的内部子视图会先吃掉鼠标事件，
     // mouseDown 覆盖/手势都收不到双击（实测）——事件分发前拦截最可靠
     @State private var dblClickMonitor: Any?
@@ -111,10 +109,28 @@ struct PlayerView: View {
         .onContinuousHover { phase in
             if case .active = phase { showControls() }   // 鼠标移动刷新显示计时
         }
-        .background(WindowAccessor { hostingWindow = $0 })
+        .background(WindowAccessor { window in
+            hostingWindow = window
+            // 明确标为主全屏窗口，macOS 才会为它建立独立的全屏 Space。
+            window?.collectionBehavior.insert(.fullScreenPrimary)
+        })
         .onExitCommand {
-            // Esc：全屏时退出全屏
+            // Esc：退出 macOS 原生全屏
             if isFullscreen { exitFullscreen() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { note in
+            guard let ownWindow = hostingWindow,
+                  let changedWindow = note.object as? NSWindow,
+                  changedWindow === ownWindow else { return }
+            isFullscreen = true
+            PlayerLog.append("⛶ 进入 macOS 原生全屏 Space")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { note in
+            guard let ownWindow = hostingWindow,
+                  let changedWindow = note.object as? NSWindow,
+                  changedWindow === ownWindow else { return }
+            isFullscreen = false
+            PlayerLog.append("⛶ 退出 macOS 原生全屏 Space")
         }
         .onAppear {
             dblClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { event in
@@ -342,30 +358,21 @@ struct PlayerView: View {
         }
     }
 
-    /// 手动全屏：无边框 + 铺满屏幕 + 隐藏菜单栏/Dock（toggleFullScreen 在
-    /// SwiftUI Window 场景上实测无效，用视频播放器的标准做法）
+    /// 使用系统原生全屏。macOS 会将窗口移入新 Space，而不是覆盖当前工作区。
     private func toggleFullscreen() {
-        guard let win = hostingWindow,
-              let screen = win.screen ?? NSScreen.main else { return }
-        if !isFullscreen {
-            savedFrame = win.frame
-            win.styleMask.remove([.titled, .closable, .miniaturizable])
-            win.setFrame(screen.frame, display: true, animate: true)
-            NSApp.presentationOptions = [.hideDock, .hideMenuBar]
-            isFullscreen = true
-            PlayerLog.append("⛶ 进入全屏 \(Int(screen.frame.width))×\(Int(screen.frame.height))")
-        } else {
-            exitFullscreen()
-        }
+        guard let win = hostingWindow else { return }
+        win.collectionBehavior.insert(.fullScreenPrimary)
+        win.makeKeyAndOrderFront(nil)
+        win.toggleFullScreen(nil)
     }
 
     private func exitFullscreen() {
-        guard let win = hostingWindow else { return }
-        win.styleMask.insert([.titled, .closable, .miniaturizable])
-        if let f = savedFrame { win.setFrame(f, display: true, animate: true) }
-        NSApp.presentationOptions = []
-        isFullscreen = false
-        PlayerLog.append("⛶ 退出全屏")
+        guard let win = hostingWindow,
+              win.styleMask.contains(.fullScreen) else {
+            isFullscreen = false
+            return
+        }
+        win.toggleFullScreen(nil)
     }
 
     /// 播放失败自动换线路：同一集（按组内位置）依次尝试其余播放组；
