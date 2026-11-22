@@ -5,6 +5,8 @@ public actor TVBoxClient {
     private let catVod: CatVodClient
     private let spider: SpiderClient
     private let managedAndroidSpider: ManagedAndroidSpiderClient?
+    private var categoryCache: [String: [String]] = [:]
+    private var detailCache: [String: Vod] = [:]
     public private(set) var loadedConfigs: [LoadedConfig] = []
 
     public init(catVod: CatVodClient? = nil, spider: SpiderClient? = nil,
@@ -50,6 +52,8 @@ public actor TVBoxClient {
             }
         }
         loadedConfigs = resolved
+        categoryCache.removeAll(keepingCapacity: true)
+        detailCache.removeAll(keepingCapacity: true)
         // 默认用第一份配置的 parses/header
         // 配置级 spider 的相对路径（"./jar/fan.txt"）先按该配置的 URL 解析成绝对 URL
         if let first = resolved.first {
@@ -71,7 +75,12 @@ public actor TVBoxClient {
     }
 
     public func categories(site: Site) async throws -> [String] {
-        try await client(for: site).categories(site: site)
+        if let cached = categoryCache[site.id] {
+            return cached
+        }
+        let result = try await client(for: site).categories(site: site)
+        categoryCache[site.id] = result
+        return result
     }
 
     public func browse(site: Site, category: String?, page: Int) async throws -> VodPage {
@@ -83,7 +92,13 @@ public actor TVBoxClient {
     }
 
     public func detail(site: Site, vodId: String) async throws -> Vod {
-        try await client(for: site).detail(site: site, vodId: vodId)
+        let cacheKey = "\(site.id)#\(vodId)"
+        if let cached = detailCache[cacheKey] {
+            return cached
+        }
+        let result = try await client(for: site).detail(site: site, vodId: vodId)
+        detailCache[cacheKey] = result
+        return result
     }
 
     public func resolvePlayUrl(site: Site, vod: Vod, episode: Episode) async throws -> String {

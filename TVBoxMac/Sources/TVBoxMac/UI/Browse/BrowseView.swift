@@ -17,6 +17,7 @@ struct BrowseView: View {
     @State private var searchKeyword: String = ""
     @State private var selectedVod: Vod?
     @State private var isSearching: Bool = false
+    @State private var loadingNextPage: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -93,7 +94,6 @@ struct BrowseView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
-                // 格子宽度上限 150：自适应网格默认会无限变宽（窗口宽时海报太大）
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)], spacing: 20) {
                     ForEach(vods) { vod in
                         VodCard(vod: vod)
@@ -141,7 +141,9 @@ struct BrowseView: View {
     }
 
     private func loadNextPage() async {
-        guard page < pagecount else { return }
+        guard page < pagecount, !loadingNextPage else { return }
+        loadingNextPage = true
+        defer { loadingNextPage = false }
         await loadPage(page + 1)
     }
 }
@@ -151,7 +153,7 @@ struct VodCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // 固定尺寸 140×210：不随图片比例/窗口宽度变化，所有海报完全一致
+            // vod_pic 可能携带 @Referer/@User-Agent，必须走 RemoteImage 解析请求头和缓存。
             RemoteImage(rawPic: vod.vod_pic)
                 .frame(width: 140, height: 210)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
