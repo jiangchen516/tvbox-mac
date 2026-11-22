@@ -176,6 +176,13 @@ public actor ManagedAndroidSpiderClient: VodFetching {
         return outer
     }
 
+    private static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if let urlError = error as? URLError, urlError.code == .cancelled { return true }
+        let nsError = error as NSError
+        return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
+    }
+
     private func callDecoded<Response: Decodable>(
         operation: String,
         site: Site,
@@ -214,6 +221,12 @@ public actor ManagedAndroidSpiderClient: VodFetching {
         do {
             response = try await transport.send(request)
         } catch {
+            if Self.isCancellation(error) {
+                // 切换站点/分类时 SwiftUI 会取消旧任务，这是正常导航行为，
+                // 不要包装成 Bridge 失败，否则页面会弹错误提示。
+                PlayerLog.append("Bridge← \(operation) 已取消（页面切换或请求替换）")
+                throw CancellationError()
+            }
             PlayerLog.append("Bridge← \(operation) 传输失败: \(error.localizedDescription)")
             throw ManagedAndroidSpiderError.bridge(error.localizedDescription)
         }

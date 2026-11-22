@@ -26,7 +26,27 @@ private actor FakeDexTransport: AndroidDexBridgeTransport {
     }
 }
 
+private actor CancelledDexTransport: AndroidDexBridgeTransport {
+    func send(_ request: AndroidDexBridgeRequest) async throws -> AndroidDexBridgeResponse {
+        throw URLError(.cancelled)
+    }
+}
+
 final class ManagedAndroidSpiderClientTests: XCTestCase {
+    func testTransportCancellationIsNotWrappedAsBridgeFailure() async throws {
+        let client = ManagedAndroidSpiderClient(transport: CancelledDexTransport())
+        let site = Site(name: "糯米", api: "csp_NmyswvGuard", type: 3)
+
+        do {
+            _ = try await client.categories(site: site)
+            XCTFail("应保留任务取消")
+        } catch is CancellationError {
+            // Expected: navigation cancellation must not be reported as a source error.
+        } catch {
+            XCTFail("取消不应包装成普通 Bridge 错误: \(error)")
+        }
+    }
+
     func testCategoriesDecodesBridgeResponse() async throws {
         let transport = FakeDexTransport(response: AndroidDexBridgeResponse(
             id: "1", ok: true,

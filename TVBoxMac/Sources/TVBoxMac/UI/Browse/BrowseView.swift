@@ -114,7 +114,10 @@ struct BrowseView: View {
     private func loadPage(_ p: Int) async {
         loading = true
         errorMessage = nil
-        defer { loading = false }
+        defer {
+            // 旧 task 被切换取消时，不要把新 task 的 loading 状态清掉。
+            if !Task.isCancelled { loading = false }
+        }
         do {
             // 首次加载先取分类（CatVod 的 t= 需要 type_id，分类名需经 API 的 class 映射）
             if categories.isEmpty {
@@ -134,7 +137,13 @@ struct BrowseView: View {
             page = p
             pagecount = result.pagecount
             PlayerLog.append("📄 浏览 \(site.name) 分类=\(currentCategory.isEmpty ? "-" : currentCategory) 页=\(p) → \(result.list.count) 条（pagecount=\(result.pagecount)）")
+        } catch is CancellationError {
+            // 快速切站/切分类会正常取消旧请求，不应显示“加载失败”。
+            return
+        } catch let error as URLError where error.code == .cancelled {
+            return
         } catch {
+            guard !Task.isCancelled else { return }
             errorMessage = "加载失败: \(error.localizedDescription)"
             showErrorMessage = true
         }
