@@ -30,6 +30,7 @@ final class AppState: ObservableObject {
         self.managedAndroidRuntime = runtime
         Task {
             await bootstrap()
+            await refreshEnabledRemoteConfigsOnStartup()
         }
     }
 
@@ -110,6 +111,44 @@ final class AppState: ObservableObject {
             selectedSite = enabledSites.first { $0.id == last }
         } else {
             selectedSite = nil
+        }
+    }
+
+    /// 启动时刷新已启用的远程配置一次。界面先使用本地缓存立即启动；远程失败时保留缓存。
+    private func refreshEnabledRemoteConfigsOnStartup() async {
+        let storedEntries = await configStore.load()
+        let entries = storedEntries.filter { $0.loaded.enabled }
+        let remoteEntries = entries.filter { entry in
+            guard let url = URL(string: entry.loaded.url),
+                  let scheme = url.scheme?.lowercased() else { return false }
+            return scheme == "http" || scheme == "https"
+        }
+        guard !remoteEntries.isEmpty else { return }
+
+        PlayerLog.append("配置启动刷新: 开始检查已启用远程配置 \(remoteEntries.count) 份（先使用本地缓存）")
+        var refreshedCount = 0
+        for entry in remoteEntries {
+            guard let url = URL(string: entry.loaded.url) else { continue }
+            do {
+                let config = try await ConfigLoader.load(single: url)
+                let refreshed = LoadedConfig(
+                    name: entry.loaded.name,
+                    url: entry.loaded.url,
+                    config: config,
+                    enabled: entry.loaded.enabled
+                )
+                _ = try await configStore.add(refreshed)
+                refreshedCount += 1
+                PlayerLog.append("配置启动刷新: \(entry.loaded.name) 已更新")
+            } catch {
+                // 保留上一份有效配置；配置服务器可能离线、返回反爬 HTML 或有临时故障。
+                PlayerLog.append("配置启动刷新: \(entry.loaded.name) 失败，保留本地缓存（\(error.localizedDescription.prefix(120))）")
+            }
+        }
+        if refreshedCount > 0 {
+            await bootstrap()
+        } else {
+            PlayerLog.append("配置启动刷新: 没有远程配置更新成功，继续使用本地缓存")
         }
     }
 

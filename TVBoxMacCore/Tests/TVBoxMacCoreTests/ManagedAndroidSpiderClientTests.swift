@@ -125,6 +125,24 @@ final class ManagedAndroidSpiderClientTests: XCTestCase {
         XCTAssertEqual(result.list.first?.vod_name, "远方的魔法树")
     }
 
+    func testEmptyPlayResponseDoesNotClaimSpiderClassIsMissing() async throws {
+        let transport = FakeDexTransport(response: AndroidDexBridgeResponse(
+            id: "1", ok: true, data: .string("")
+        ))
+        let client = ManagedAndroidSpiderClient(transport: transport)
+        let site = Site(name: "易听音乐", api: "csp_MusicGuard", type: 3)
+        let vod = Vod(vod_id: 0, vod_name: "歌曲")
+        let episode = Episode(title: "试听", url: "/mp3/track.html", group: "饭太硬", index: 0)
+
+        do {
+            _ = try await client.resolvePlayUrl(site: site, vod: vod, episode: episode)
+            XCTFail("空播放响应应显示播放地址问题")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("播放接口没有返回地址"))
+            XCTAssertFalse(error.localizedDescription.contains("jar 里可能没有"))
+        }
+    }
+
     func testPlayResponseRequiresUrl() async throws {
         let transport = FakeDexTransport(response: AndroidDexBridgeResponse(
             id: "1", ok: true, data: .object(["value": .string("missing")])

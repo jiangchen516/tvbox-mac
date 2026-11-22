@@ -252,6 +252,8 @@ public actor ManagedAndroidSpiderClient: VodFetching {
                 let hint: String
                 if operation == "search" || operation == "browse" {
                     hint = "没有找到结果（无匹配或源已失效）"
+                } else if operation == "play" {
+                    hint = "播放接口没有返回地址（可能是该歌曲/线路失效，或当前 Spider 版本与源不兼容）"
                 } else if site.api.lowercased().hasPrefix("csp_") {
                     hint = "该源的 spider jar 里可能没有 \(site.api) 类（jar 版本不匹配或已失效），或此源需要 ext 配置。请换线路/换配置试试"
                 } else {
