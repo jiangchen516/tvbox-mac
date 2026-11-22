@@ -107,7 +107,13 @@ struct BrowseView: View {
                         .onAppear { Task { await loadNextPage() } }
                 }
             }
-            .refreshable { await loadPage(1) }
+            .refreshable {
+                await appState.client.invalidateBrowseCache(
+                    site: site,
+                    category: currentCategory.isEmpty ? nil : currentCategory
+                )
+                await loadPage(1)
+            }
         }
     }
 

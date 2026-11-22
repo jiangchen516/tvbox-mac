@@ -7,6 +7,23 @@ public actor TVBoxClient {
     private let managedAndroidSpider: ManagedAndroidSpiderClient?
     private var categoryCache: [String: [String]] = [:]
     private var detailCache: [String: Vod] = [:]
+    private var browseCache: [BrowseCacheKey: BrowseCacheEntry] = [:]
+    private let browseCacheTTL: TimeInterval = 120
+    private let maxBrowseCacheEntries = 300
+
+    private struct BrowseCacheKey: Hashable {
+        let siteID: String
+        let api: String
+        let jar: String
+        let ext: JSONValue?
+        let category: String
+        let page: Int
+    }
+
+    private struct BrowseCacheEntry {
+        let value: VodPage
+        let storedAt: Date
+    }
     public private(set) var loadedConfigs: [LoadedConfig] = []
 
     public init(catVod: CatVodClient? = nil, spider: SpiderClient? = nil,
@@ -54,6 +71,7 @@ public actor TVBoxClient {
         loadedConfigs = resolved
         categoryCache.removeAll(keepingCapacity: true)
         detailCache.removeAll(keepingCapacity: true)
+        browseCache.removeAll(keepingCapacity: true)
         // 默认用第一份配置的 parses/header
         // 配置级 spider 的相对路径（"./jar/fan.txt"）先按该配置的 URL 解析成绝对 URL
         if let first = resolved.first {
@@ -84,7 +102,34 @@ public actor TVBoxClient {
     }
 
     public func browse(site: Site, category: String?, page: Int) async throws -> VodPage {
-        try await client(for: site).browse(site: site, category: category, page: page)
+        let key = BrowseCacheKey(
+            siteID: site.id,
+            api: site.api,
+            jar: site.jar ?? site.spider ?? "",
+            ext: site.ext,
+            category: category ?? "",
+            page: page
+        )
+        if let cached = browseCache[key], Date().timeIntervalSince(cached.storedAt) < browseCacheTTL {
+            PlayerLog.append("⚡ 浏览缓存命中 \(site.name) 分类=\(category ?? "-") 页=\(page)")
+            return cached.value
+        }
+        let result = try await client(for: site).browse(site: site, category: category, page: page)
+        browseCache[key] = BrowseCacheEntry(value: result, storedAt: .now)
+        if browseCache.count > maxBrowseCacheEntries,
+           let oldest = browseCache.min(by: { $0.value.storedAt < $1.value.storedAt })?.key {
+            browseCache.removeValue(forKey: oldest)
+        }
+        return result
+    }
+
+    /// 用户下拉刷新时丢弃该站点（或当前分类）的分页缓存。
+    public func invalidateBrowseCache(site: Site, category: String? = nil) {
+        browseCache = browseCache.filter { key, _ in
+            guard key.siteID == site.id, key.api == site.api else { return true }
+            if let category { return key.category != category }
+            return false
+        }
     }
 
     public func search(site: Site, keyword: String, page: Int) async throws -> VodPage {
