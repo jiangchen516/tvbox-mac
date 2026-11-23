@@ -22,8 +22,8 @@ struct AllSitesSearchSheet: View {
         var id: String { "\(site.id)#\(vod.id)" }
     }
 
-    private let perSiteTimeout: TimeInterval = 6
-    private let maxConcurrent = 6
+    private let perSiteTimeout: TimeInterval = 15
+    private let maxConcurrent = 3
 
     private var foundCount: Int { groups.reduce(0) { $0 + $1.vods.count } }
 
@@ -47,7 +47,7 @@ struct AllSitesSearchSheet: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("「\(keyword)」的全站结果").font(.title3.bold())
                     Text(running
-                         ? "搜索中 \(searched)/\(total) 站 · 已找到 \(foundCount) 条"
+                         ? "搜索中 \(searched)/\(total) 站 · 已找到 \(foundCount) 条（结果陆续出现）"
                          : "共 \(groups.count) 个源 · \(foundCount) 条结果")
                         .font(.caption).foregroundStyle(.secondary)
                 }
@@ -137,6 +137,7 @@ struct AllSitesSearchSheet: View {
                     inFlight -= 1
                     if let group, !group.vods.isEmpty {
                         groups.append(group)
+                        PlayerLog.append("✅ 搜索命中 \(group.site.name) → \(group.vods.count) 条")
                     }
                     searched += 1
                     addNext()
