@@ -40,6 +40,17 @@ final class DoubanClientTests: XCTestCase {
         XCTAssertEqual(items[1].year, nil)
     }
 
+    // “正在热映”集合用的是 cover.url，而不是 pic.large/normal
+    func testDecodesCoverURLForNowShowing() async throws {
+        let json = """
+        {"subject_collection_items":[{"id":"1","title":"饥饿游戏","type":"movie",
+          "cover":{"url":"https://img.example/cover.jpg","width":4051,"height":6510}}]}
+        """.data(using: .utf8)!
+        let client = DoubanClient(http: MockDoubanHTTP(data: json, status: 200))
+        let items = try await client.items(collection: "movie_showing")
+        XCTAssertEqual(items.first?.posterURL, "https://img.example/cover.jpg")
+    }
+
     func testMalformedJSONThrowsParseError() async {
         let client = DoubanClient(http: MockDoubanHTTP(data: Data("<html>".utf8), status: 200))
         do {

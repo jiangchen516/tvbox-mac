@@ -7,16 +7,26 @@ public struct DoubanSubject: Codable, Sendable, Identifiable, Hashable {
     public struct Poster: Codable, Sendable, Hashable {
         public let large: String?
         public let normal: String?
+        /// 部分集合（正在热映）用 {"url": ...} 而不是 large/normal
+        public let url: String?
 
-        public init(large: String? = nil, normal: String? = nil) {
+        public init(large: String? = nil, normal: String? = nil, url: String? = nil) {
             self.large = large
             self.normal = normal
+            self.url = url
         }
 
         public init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             self.large = try? c.decodeIfPresent(String.self, forKey: .large)
             self.normal = try? c.decodeIfPresent(String.self, forKey: .normal)
+            self.url = try? c.decodeIfPresent(String.self, forKey: .url)
+        }
+
+        public init(url: String) {
+            self.large = nil
+            self.normal = nil
+            self.url = url
         }
     }
 
@@ -39,12 +49,15 @@ public struct DoubanSubject: Codable, Sendable, Identifiable, Hashable {
     public let comment: String?
     public let episodesInfo: String?
     public let pic: Poster?
+    public let cover: Poster?
     public let rating: Rating?
 
-    /// 海报地址：优先大图，退回普通图
+    /// 海报地址：pic 的 large/normal 优先；正在热映等集合只有 cover.url
     public var posterURL: String? {
-        if let large = pic?.large, !large.isEmpty { return large }
-        if let normal = pic?.normal, !normal.isEmpty { return normal }
+        for candidate in [pic?.large, pic?.normal, pic?.url,
+                          cover?.large, cover?.normal, cover?.url] {
+            if let value = candidate, !value.isEmpty { return value }
+        }
         return nil
     }
 
@@ -56,7 +69,7 @@ public struct DoubanSubject: Codable, Sendable, Identifiable, Hashable {
 
     public init(id: String, title: String, type: String? = nil, year: String? = nil,
                 cardSubtitle: String? = nil, comment: String? = nil, episodesInfo: String? = nil,
-                pic: Poster? = nil, rating: Rating? = nil) {
+                pic: Poster? = nil, cover: Poster? = nil, rating: Rating? = nil) {
         self.id = id
         self.title = title
         self.type = type
@@ -65,11 +78,12 @@ public struct DoubanSubject: Codable, Sendable, Identifiable, Hashable {
         self.comment = comment
         self.episodesInfo = episodesInfo
         self.pic = pic
+        self.cover = cover
         self.rating = rating
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, type, year, comment, pic, rating
+        case id, title, type, year, comment, pic, cover, rating
         case cardSubtitle = "card_subtitle"
         case episodesInfo = "episodes_info"
     }
@@ -87,6 +101,7 @@ public struct DoubanSubject: Codable, Sendable, Identifiable, Hashable {
         self.comment = try? c.decodeIfPresent(String.self, forKey: .comment)
         self.episodesInfo = try? c.decodeIfPresent(String.self, forKey: .episodesInfo)
         self.pic = try? c.decodeIfPresent(Poster.self, forKey: .pic)
+        self.cover = try? c.decodeIfPresent(Poster.self, forKey: .cover)
         self.rating = try? c.decodeIfPresent(Rating.self, forKey: .rating)
     }
 }
