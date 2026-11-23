@@ -22,6 +22,12 @@ public actor ManagedAndroidSpiderClient: VodFetching {
     private var globalSpiderURL: String?
     private var categoryIDs: [String: [String: String]] = [:]
     private var categoryNames: [String: [String]] = [:]
+    // 模拟器内部 DNS/网络失效时，所有 jar 源会同时返回空响应。
+    // 连续识别到网络类错误后自动重启一次运行时（10 分钟冷却）。
+    private var networkFailureStreak = 0
+    private var lastNetworkFailureAt = Date.distantPast
+    private var lastRuntimeRestartAt = Date.distantPast
+    private var runtimeRestartPending = false
     // Bridge 返回的播放地址指向安卓侧 loopback（guest:9978 的 FongMi 兼容代理）；
     // 宿主机通过 adb 端口转发（host 19978 → guest 9978）访问，需改写端口
     private let guestProxyPort: Int
@@ -87,6 +93,28 @@ public actor ManagedAndroidSpiderClient: VodFetching {
                         "page": .number(Double(page))
                 ])
                 return try decodeSpiderPage(from: data, page: page, operation: "search")
+    }
+
+    /// 判断是否为“模拟器网络/DNS 失效”类错误；连续 3 次触发一次自动重启。
+    private func noteNetworkFailure(_ message: String) {
+        let signatures = [
+            "UnknownHostException", "EAI_NODATA", "Unable to resolve host",
+            "End of input at character 0", "Network is unreachable",
+            "Connection refused", "connect timed out", "SocketTimeout"
+        ]
+        guard signatures.contains(where: { message.localizedCaseInsensitiveContains($0) }) else { return }
+        let now = Date()
+        if now.timeIntervalSince(lastNetworkFailureAt) < 120 {
+            networkFailureStreak += 1
+        } else {
+            networkFailureStreak = 1
+        }
+        lastNetworkFailureAt = now
+        guard networkFailureStreak >= 3,
+              now.timeIntervalSince(lastRuntimeRestartAt) > 600 else { return }
+        networkFailureStreak = 0
+        runtimeRestartPending = true
+        PlayerLog.append("⚠️ 连续 3 次模拟器网络类失败，下一次请求前将重启运行时")
     }
 
     private func resetSpider(site: Site) async {
@@ -197,6 +225,17 @@ public actor ManagedAndroidSpiderClient: VodFetching {
         site: Site,
         arguments: [String: JSONValue] = [:]
     ) async throws -> Data {
+        if runtimeRestartPending {
+            runtimeRestartPending = false
+            lastRuntimeRestartAt = Date()
+            PlayerLog.append("♻️ 检测到模拟器网络持续异常，自动重启 Android 运行时…")
+            do {
+                try await transport.restart()
+                PlayerLog.append("♻️ Android 运行时已重启（DNS/网络恢复）")
+            } catch {
+                PlayerLog.append("♻️ Android 运行时重启失败: \(error.localizedDescription)")
+            }
+        }
         var resolvedSite = site
         if resolvedSite.jar == nil || resolvedSite.jar?.isEmpty == true {
             // site.spider 是 TVBox 配置允许的站点级实现，优先于配置级全局 jar。
@@ -228,11 +267,14 @@ public actor ManagedAndroidSpiderClient: VodFetching {
                 throw CancellationError()
             }
             PlayerLog.append("Bridge← \(operation) 传输失败: \(error.localizedDescription)")
+            noteNetworkFailure(error.localizedDescription)
             throw ManagedAndroidSpiderError.bridge(error.localizedDescription)
         }
         guard response.ok else {
-            PlayerLog.append("Bridge← \(operation) ok=false error=\(response.error ?? "未知错误")")
-            throw ManagedAndroidSpiderError.bridge(response.error ?? "未知错误")
+            let message = response.error ?? "未知错误"
+            PlayerLog.append("Bridge← \(operation) ok=false error=\(message)")
+            noteNetworkFailure(message)
+            throw ManagedAndroidSpiderError.bridge(message)
         }
         guard let value = response.data else {
             PlayerLog.append("Bridge← \(operation) 缺少 data")

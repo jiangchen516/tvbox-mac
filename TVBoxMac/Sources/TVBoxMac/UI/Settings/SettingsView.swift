@@ -55,6 +55,15 @@ struct SettingsView: View {
                             Text("开启后，下次启动 App 时会在后台启动 Android 模拟器和 Bridge，但不读取任何站点。第一次启动仍需等待；之后首次打开 jar 源会更快。此选项会额外占用内存和 CPU。")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                            HStack(spacing: 8) {
+                                Button(appState.runtimeRestarting ? "正在重启…" : "重启 Android 运行时") {
+                                    Task { await appState.restartManagedRuntime() }
+                                }
+                                .disabled(appState.runtimeRestarting || appState.managedAndroidRuntime == nil)
+                                if appState.runtimeRestarting { ProgressView().controlSize(.small) }
+                            }
+                            Text("模拟器内 DNS 失效时，所有 jar 源会同时打不开；重启运行时通常可恢复。")
+                                .font(.caption).foregroundStyle(.secondary)
                             if appState.managedAndroidRuntime == nil {
                                 Text("当前 App 包没有包含 Android Bridge，预热不可用。")
                                     .font(.caption)

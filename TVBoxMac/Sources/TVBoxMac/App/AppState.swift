@@ -13,6 +13,7 @@ final class AppState: ObservableObject {
     @Published var selectedConfig: LoadedConfig?
     @Published var showSettings: Bool = false
     @Published var banner: String?   // 一次性提示（加载 warning 等）
+    @Published var runtimeRestarting: Bool = false
 
     let client: TVBoxClient
     let managedAndroidRuntime: ManagedAndroidSpiderRuntime?
@@ -64,6 +65,26 @@ final class AppState: ObservableObject {
             TVBoxClient(managedAndroidSpider: ManagedAndroidSpiderClient(transport: runtime)),
             runtime
         )
+    }
+
+    /// 手动重启托管 Android 运行时：模拟器内 DNS/网络卡死时使用。
+    func restartManagedRuntime() async {
+        guard let runtime = managedAndroidRuntime else {
+            banner = "当前 App 包没有包含 Android Bridge，无法重启运行时"
+            return
+        }
+        guard !runtimeRestarting else { return }
+        runtimeRestarting = true
+        defer { runtimeRestarting = false }
+        PlayerLog.append("♻️ 手动重启 Android 运行时…")
+        do {
+            try await runtime.restart()
+            banner = "Android 运行时已重启"
+            PlayerLog.append("♻️ Android 运行时已重启")
+        } catch {
+            banner = "Android 运行时重启失败: \(error.localizedDescription)"
+            PlayerLog.append("♻️ 重启失败: \(error.localizedDescription)")
+        }
     }
 
     /// App 退出时清理托管安卓模拟器（有界等待，最多 3 秒）

@@ -51,6 +51,12 @@ public actor ManagedAndroidSpiderRuntime: AndroidDexBridgeTransport {
         return try await transport.send(request)
     }
 
+    /// 重启模拟器与 Bridge（Android 内部 DNS 失效时唯一可靠的恢复方式）。
+    public func restart() async throws {
+        await stop()
+        try await prepare()
+    }
+
     public func stop() async {
         if let preparationTask {
             preparationTask.cancel()

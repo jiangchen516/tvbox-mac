@@ -130,6 +130,13 @@ public struct AndroidDexBridgeResponse: Codable, Sendable, Equatable {
 
 public protocol AndroidDexBridgeTransport: Sendable {
     func send(_ request: AndroidDexBridgeRequest) async throws -> AndroidDexBridgeResponse
+    /// 重启托管运行时（模拟器 + Bridge）。用于恢复模拟器内 DNS/网络失效等卡死状态。
+    func restart() async throws
+}
+
+public extension AndroidDexBridgeTransport {
+    /// 默认不重启（测试/自定义 transport 只需实现 send）
+    func restart() async throws {}
 }
 
 public actor ManagedAndroidRuntime {
