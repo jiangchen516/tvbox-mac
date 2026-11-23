@@ -32,12 +32,18 @@ public actor ManagedAndroidSpiderClient: VodFetching {
     // 宿主机通过 adb 端口转发（host 19978 → guest 9978）访问，需改写端口
     private let guestProxyPort: Int
     private let hostProxyPort: Int
+    private let http: HTTPFetching
+
+    public static let bilibiliUserAgent =
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
     public init(transport: any AndroidDexBridgeTransport,
-                guestProxyPort: Int = 9978, hostProxyPort: Int = 19978) {
+                guestProxyPort: Int = 9978, hostProxyPort: Int = 19978,
+                http: HTTPFetching = HttpClient()) {
         self.transport = transport
         self.guestProxyPort = guestProxyPort
         self.hostProxyPort = hostProxyPort
+        self.http = http
     }
 
     public func setGlobalSpiderURL(_ url: String?) {
@@ -182,8 +188,20 @@ public actor ManagedAndroidSpiderClient: VodFetching {
             "episode": try jsonValue(episode)
         ])
         let response = try decode(BridgePlayResponse.self, from: data)
-        guard !response.url.isEmpty else {
+        guard var rawURL = response.bestURL else {
             throw ManagedAndroidSpiderError.invalidResponse("播放响应缺少 url")
+        }
+        // B 站类 Spider 返回 DASH（url 是 [画质,地址,...] 数组 + application/dash+xml）。
+        // AVPlayer 不支持 MPD、也不支持音视频分离的 DASH，这里改用 B 站 playurl
+        // 接口取同集的 mp4（匿名最高 360P），否则这类源永远无法播放。
+        if response.isDASH {
+            if let mp4 = await Self.bilibiliMP4URL(episode: episode, http: http) {
+                PlayerLog.append("▶ B站 DASH → mp4 回退: \(mp4.prefix(90))")
+                rawURL = mp4
+            } else {
+                throw ManagedAndroidSpiderError.invalidResponse(
+                    "该视频只提供 DASH 流（AVPlayer 不支持），且 B 站 mp4 回退失败（可能需要登录）")
+            }
         }
         // Bridge 返回的地址指向安卓侧 loopback（guest:9978）；宿主机通过 adb 端口转发
         // （host 19978 → guest 9978）访问——改写为主机侧端口，否则连不上（实测 -1004）
@@ -191,8 +209,7 @@ public actor ManagedAndroidSpiderClient: VodFetching {
         // （手机端 FongMi 的 parse 子系统做法；webview 加载页面 + JS 捕获真 m3u8）
         if Self.isParseOne(response.parse) {
             PlayerLog.append("🌐 parse=1：jx 页面，走 webview 解析")
-            let page = URL(string: response.url)
-            if let page {
+            if let page = URL(string: rawURL) {
                 let real = try await WebViewParser.shared.resolve(page)
                 return real.absoluteString
             }
@@ -200,7 +217,7 @@ public actor ManagedAndroidSpiderClient: VodFetching {
         // 代理形状（url 指向 bridge 的媒体会话 /proxy/media/<uuid>）：这是桥的
         // 设计路径——writeSessionMedia 直接调 spider 的 proxy()（绕过 play 后即关
         // 的租约）拉流。9979 的 spider 代理 URL 在 play 返回后租约已关（410），不能用
-        var hostPlayURL = response.url.replacingOccurrences(
+        var hostPlayURL = rawURL.replacingOccurrences(
             of: "127.0.0.1:\(guestProxyPort)",
             with: "127.0.0.1:\(hostProxyPort)")
         // FongMi 播放地址可能带 @标记后缀（url@线路名@集数序号）——剥掉，
@@ -213,8 +230,36 @@ public actor ManagedAndroidSpiderClient: VodFetching {
                 hostPlayURL = candidate
             }
         }
-        PlayerLog.append("▶ play URL 改写: \(response.url.prefix(80)) → \(hostPlayURL.prefix(80))")
+        PlayerLog.append("▶ play URL 改写: \(rawURL.prefix(80)) → \(hostPlayURL.prefix(80))")
         return hostPlayURL
+    }
+
+    /// 用 B 站 playurl 接口把 DASH 集转换为可直连的 mp4。
+    /// episode.url 形如 "484442726+1080050195+32:16+清晰 480P:流畅 360P"
+    private static func bilibiliMP4URL(episode: Episode, http: HTTPFetching) async -> String? {
+        let parts = episode.url.components(separatedBy: "+")
+        guard parts.count >= 2, Int(parts[0]) != nil, Int(parts[1]) != nil else { return nil }
+        let endpoint = "https://api.bilibili.com/x/player/playurl?avid=\(parts[0])&cid=\(parts[1])&qn=64&fnval=1&fourk=0"
+        guard let url = URL(string: endpoint) else { return nil }
+        do {
+            let (data, _) = try await http.get(url, headers: [
+                "Referer": "https://www.bilibili.com/",
+                "User-Agent": bilibiliUserAgent
+            ])
+            struct Resp: Decodable {
+                struct Payload: Decodable {
+                    struct Durl: Decodable { let url: String }
+                    let durl: [Durl]?
+                }
+                let data: Payload?
+            }
+            guard let parsed = try? JSONDecoder().decode(Resp.self, from: data),
+                  let mp4 = parsed.data?.durl?.first?.url, !mp4.isEmpty else { return nil }
+            return mp4
+        } catch {
+            PlayerLog.append("B站 mp4 回退请求失败: \(error.localizedDescription)")
+            return nil
+        }
     }
 
     /// 从 danmaku 字段提取内层 m3u8 代理 URL：
@@ -464,10 +509,27 @@ private struct CategoryResponse {
 }
 
 private struct BridgePlayResponse: Decodable {
-    let url: String
-    // spider 代理 URL（9979 /proxy?do=m3u8&url=...&headers=...）——
-    // spider 的 proxy 服务带请求头拉流，手机端 FongMi 就是用它
+    let url: JSONValue
+    let format: String?
+    // spider 代理 URL（9979 /proxy?do=m3u8&url=...&headers=...）
     let danmaku: String?
     // parse=1 → 返回的是 jx 解析页（网页 URL），需要 webview 解析真流
     let parse: JSONValue?
+
+    /// 兼容两种形态：普通字符串 url，或 [画质名, 地址, 画质名, 地址...] 数组
+    var bestURL: String? {
+        switch url {
+        case .string(let value):
+            return value.isEmpty ? nil : value
+        case .array(let items):
+            return items.compactMap(\.stringValue)
+                .first { $0.lowercased().hasPrefix("http") }
+        default:
+            return nil
+        }
+    }
+
+    var isDASH: Bool {
+        (format ?? "").lowercased().contains("dash")
+    }
 }

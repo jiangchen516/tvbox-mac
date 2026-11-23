@@ -34,6 +34,13 @@ private actor CancelledDexTransport: AndroidDexBridgeTransport {
     }
 }
 
+private struct FakeBiliHTTP: HTTPFetching {
+    let data: Data
+    func get(_ url: URL, headers: [String: String]?) async throws -> (data: Data, response: HTTPResponse) {
+        (data, HTTPResponse(url: url, statusCode: 200))
+    }
+}
+
 final class ManagedAndroidSpiderClientTests: XCTestCase {
     func testTransportCancellationIsNotWrappedAsBridgeFailure() async throws {
         let client = ManagedAndroidSpiderClient(transport: CancelledDexTransport())
@@ -166,6 +173,31 @@ final class ManagedAndroidSpiderClientTests: XCTestCase {
         let requests = await transport.sentRequests
         XCTAssertEqual(requests.count, 2)
         XCTAssertEqual(requests.last?.arguments["__searchTwoArg"], .bool(true))
+    }
+
+    // 哔哔合集（BiliGuard）返回 DASH：url 是 [画质,地址,...] 数组 + dash+xml。
+    // 应改走 B 站 playurl 取 mp4，而不是 JSON 解码失败。
+    func testBilibiliDASHFallsBackToMP4() async throws {
+        let playJSON = """
+        {"parse":0,"format":"application/dash+xml",
+         "url":["清晰 480P","http://127.0.0.1:9978/proxy/media/abc",
+                "流畅 360P","http://127.0.0.1:9978/proxy/media/def"]}
+        """.data(using: .utf8)!
+        let apiJSON = """
+        {"code":0,"data":{"durl":[{"url":"https://upos.example/1080050195-1-16.mp4"}]}}
+        """.data(using: .utf8)!
+        let client = ManagedAndroidSpiderClient(
+            transport: FakeDexTransport(response: AndroidDexBridgeResponse(id: "1", ok: true, data: .string(String(data: playJSON, encoding: .utf8)!))),
+            http: FakeBiliHTTP(data: apiJSON)
+        )
+        let site = Site(key: "哔哔", name: "哔哔合集", api: "csp_BiliGuard", type: 3)
+        let vod = Vod(vod_id: 0, vod_name: "探索发现")
+        let episode = Episode(title: "第一集", url: "484442726+1080050195+32:16+清晰 480P:流畅 360P",
+                              group: "B站", index: 0)
+
+        let resolved = try await client.resolvePlayUrl(site: site, vod: vod, episode: episode)
+
+        XCTAssertEqual(resolved, "https://upos.example/1080050195-1-16.mp4")
     }
 
     func testPlayResponseRequiresUrl() async throws {

@@ -452,9 +452,15 @@ struct PlayerView: View {
                 if resumeAt != nil { isRestoringAfterWake = false }
             }
             do {
-                let headers = HeaderParser.parse(site.header)
+                var headers = HeaderParser.parse(site.header)
                 let resolved = try await appState.client.resolvePlayUrl(site: site, vod: vod, episode: episode)
                 PlayerLog.append("✔ 解析完成 → \(resolved.prefix(150))")
+                // B 站 CDN 要求浏览器 UA + Referer，否则 403
+                if let host = URL(string: resolved)?.host?.lowercased(),
+                   host.contains("bilivideo") || host.contains("bilibili") {
+                    headers["User-Agent"] = ManagedAndroidSpiderClient.bilibiliUserAgent
+                    headers["Referer"] = "https://www.bilibili.com/"
+                }
                 guard let url = URL(string: resolved) else {
                     resolveError = "播放地址无效: \(resolved)"
                     return
