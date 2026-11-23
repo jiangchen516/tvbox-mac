@@ -18,7 +18,10 @@ struct HomeView: View {
                     .onSubmit {
                         let kw = allSearchDraft.trimmingCharacters(in: .whitespaces)
                         guard !kw.isEmpty else { return }
+                        appState.selectedSite = nil
                         appState.allSearchKeyword = kw
+                        appState.showHome = false
+                        appState.showHistory = false
                         appState.showAllSearch = true
                     }
                     .help("在所有启用站点里搜索资源（回车）")
@@ -26,6 +29,26 @@ struct HomeView: View {
                 Button {
                     appState.selectedSite = nil
                     appState.showAllSearch = false
+                    appState.showHistory = false
+                    appState.showHome = true
+                } label: {
+                    Label("推荐首页", systemImage: "sparkles.tv")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 3)
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(appState.showHome ? Color.accentColor : Color.primary)
+                .listRowBackground(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(appState.showHome ? Color.accentColor.opacity(0.18) : .clear)
+                        .padding(.horizontal, 4)
+                )
+                .help("豆瓣推荐 · 点海报全站搜索")
+
+                Button {
+                    appState.selectedSite = nil
+                    appState.showAllSearch = false
+                    appState.showHome = false
                     appState.showHistory = true
                 } label: {
                     Label("观看历史", systemImage: "clock.arrow.circlepath")

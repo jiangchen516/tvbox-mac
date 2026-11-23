@@ -6,6 +6,7 @@ import TVBoxMacCore
 final class AppState: ObservableObject {
     @Published var configs: [ConfigStore.StoredEntry] = []
     @Published var selectedSite: Site?
+    @Published var showHome: Bool = true         // 推荐首页（启动默认）
     @Published var showAllSearch: Bool = false   // 全站搜索模式（侧栏搜索框回车触发）
     @Published var showHistory: Bool = false     // 观看历史页面
     @Published var allSearchKeyword: String = "" // 全站搜索的已提交关键词
@@ -107,12 +108,11 @@ final class AppState: ObservableObject {
         let boundCount = bound.reduce(0) { $0 + $1.loaded.config.sites.filter { $0.jar != nil }.count }
         PlayerLog.append("配置加载: \(bound.count) 份（\(bound.map { $0.loaded.name }.joined(separator: "、"))），已绑定 spider jar 的站点 \(boundCount) 个")
         await client.loadConfigs(bound.map { $0.loaded })
-        // 重启后回到上次选中的站点（直接显示其主页/第一个分类页）
-        if let last = UserDefaults.standard.string(forKey: Self.lastSiteKey) {
-            selectedSite = enabledSites.first { $0.id == last }
-        } else {
-            selectedSite = nil
-        }
+        // 启动默认进入推荐首页，不再自动连回上次的站点。
+        showHome = true
+        showAllSearch = false
+        showHistory = false
+        selectedSite = nil
     }
 
     /// 启动时刷新已启用的远程配置一次。界面先使用本地缓存立即启动；远程失败时保留缓存。
@@ -192,6 +192,7 @@ final class AppState: ObservableObject {
     func rememberSelectedSite() {
         showAllSearch = false
         if let id = selectedSite?.id {
+            showHome = false
             showHistory = false
             UserDefaults.standard.set(id, forKey: Self.lastSiteKey)
         }

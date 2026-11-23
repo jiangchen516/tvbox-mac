@@ -123,7 +123,9 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 200, ideal: 240)
         } detail: {
             if appState.hasConfig {
-                if appState.showHistory {
+                if appState.showHome {
+                    DiscoverView()
+                } else if appState.showHistory {
                     HistoryView()
                 } else if appState.showAllSearch {
                     SearchAllView()
