@@ -75,6 +75,28 @@ struct RemoteImage: View {
             headers["User-Agent"] = String(raw[r.upperBound...])
             urlPart = String(raw[..<r.lowerBound])
         }
+        // 部分 Guard 源（如瓜子 AppgzGuard）把图片包装成
+        // http://127.0.0.1:-1/proxy?do=dnsPic&url=<真实图片>&referer=<来源>。
+        // -1 是 Android 侧动态代理占位符，macOS 不能直接请求；图片本身是普通
+        // 外链，解包真实 URL 并带 Referer 直连即可。
+        if let proxy = unwrapDNSPictureProxy(urlPart) {
+            if headers["Referer"] == nil, let referer = proxy.referer {
+                headers["Referer"] = referer
+            }
+            return (proxy.url, headers)
+        }
         return (URL(string: urlPart), headers)
+    }
+
+    private static func unwrapDNSPictureProxy(_ raw: String) -> (url: URL, referer: String?)? {
+        guard let question = raw.firstIndex(of: "?") else { return nil }
+        let query = String(raw[raw.index(after: question)...])
+        var components = URLComponents()
+        components.percentEncodedQuery = query
+        guard let items = components.queryItems,
+              items.first(where: { $0.name == "do" })?.value == "dnsPic",
+              let rawURL = items.first(where: { $0.name == "url" })?.value,
+              let url = URL(string: rawURL) else { return nil }
+        return (url, items.first(where: { $0.name.lowercased() == "referer" })?.value)
     }
 }
