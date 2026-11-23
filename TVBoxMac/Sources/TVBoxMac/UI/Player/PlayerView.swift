@@ -82,6 +82,8 @@ struct PlayerView: View {
     // 由 NSWindow 原生全屏通知同步，macOS 会将窗口移入独立 Space。
     @State private var isFullscreen: Bool = false
     @State private var keepPausedAfterRecovery: Bool = false
+    // 窗口置顶（浮在其他 App 上方）
+    @State private var isAlwaysOnTop: Bool = false
     @State private var isRestoringAfterWake: Bool = false
     // 本地事件监听器：AVPlayerView 的内部子视图会先吃掉鼠标事件，
     // mouseDown 覆盖/手势都收不到双击（实测）——事件分发前拦截最可靠
@@ -225,6 +227,8 @@ struct PlayerView: View {
         .onDisappear {
             controlsIdleTask?.cancel()
             controller.stop()
+            hostingWindow?.level = .normal
+            isAlwaysOnTop = false
         }
         .onReceive(NotificationCenter.default.publisher(for: .stopPlayerPlayback)) { _ in
             // 播放窗口被 X 关闭（willClose）→ 立即停掉 AVPlayer（否则后台继续出声）
@@ -396,6 +400,16 @@ struct PlayerView: View {
                 .font(.caption).foregroundStyle(.white.opacity(0.7))
 
             Button {
+                isAlwaysOnTop.toggle()
+                applyWindowLevel()
+            } label: {
+                Image(systemName: isAlwaysOnTop ? "pin.fill" : "pin")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(isAlwaysOnTop ? Color.accentColor : .white)
+            .help(isAlwaysOnTop ? "取消置顶" : "窗口置顶（浮在其他应用上方）")
+
+            Button {
                 toggleFullscreen()
             } label: {
                 Image(systemName: isFullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
@@ -482,6 +496,13 @@ struct PlayerView: View {
                 if autoPlay { await tryNextLine() }
             }
         }
+    }
+
+    /// 置顶：把播放窗口提升到浮动层，切到其他 App 时仍可见。
+    private func applyWindowLevel() {
+        guard let window = hostingWindow ?? NSApp.keyWindow else { return }
+        window.level = isAlwaysOnTop ? .floating : .normal
+        PlayerLog.append(isAlwaysOnTop ? "📌 播放窗口置顶" : "📌 取消置顶")
     }
 
     /// 使用系统原生全屏。macOS 会将窗口移入新 Space，而不是覆盖当前工作区。
