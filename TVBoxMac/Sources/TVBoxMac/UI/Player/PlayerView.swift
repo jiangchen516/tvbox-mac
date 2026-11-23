@@ -82,6 +82,7 @@ struct PlayerView: View {
     // 由 NSWindow 原生全屏通知同步，macOS 会将窗口移入独立 Space。
     @State private var isFullscreen: Bool = false
     @State private var keepPausedAfterRecovery: Bool = false
+    @State private var isRestoringAfterWake: Bool = false
     // 本地事件监听器：AVPlayerView 的内部子视图会先吃掉鼠标事件，
     // mouseDown 覆盖/手势都收不到双击（实测）——事件分发前拦截最可靠
     @State private var dblClickMonitor: Any?
@@ -128,10 +129,14 @@ struct PlayerView: View {
             // 唤醒时无论睡前是否在播放，都刷新流并定位；播放必须由用户显式操作。
             guard playUrl != nil else { return }
             let resumeAt = controller.currentTime
+            isRestoringAfterWake = true
             PlayerLog.append("☀️ 系统唤醒，重连并定位到 \(timeString(resumeAt))；等待用户按播放")
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled else {
+                    isRestoringAfterWake = false
+                    return
+                }
                 startResolve(resumeAt: resumeAt, autoPlay: false,
                              recordHistory: false, retryWhilePaused: true)
             }
@@ -173,7 +178,11 @@ struct PlayerView: View {
         .onAppear {
             let key = "\(site.id)#\(vod.vod_id)#\(episode.group)#\(episode.title)"
             controller.setPositionKey(key)
-            startResolve()
+            if isRestoringAfterWake {
+                PlayerLog.append("▶ 唤醒恢复进行中，跳过 onAppear 自动起播")
+            } else {
+                startResolve()
+            }
             showControls()
         }
         .onChange(of: controller.isPlaying) { playing in
@@ -376,6 +385,10 @@ struct PlayerView: View {
         playUrl = nil
         PlayerLog.append("▶ 开始解析：\(site.name) \(vod.vod_name) [\(episode.group)] \(episode.title)")
         Task {
+            defer {
+                resolving = false
+                if resumeAt != nil { isRestoringAfterWake = false }
+            }
             do {
                 let headers = HeaderParser.parse(site.header)
                 let resolved = try await appState.client.resolvePlayUrl(site: site, vod: vod, episode: episode)
@@ -400,7 +413,6 @@ struct PlayerView: View {
                 // 播放中自动重连可换线路；唤醒后的暂停恢复必须等用户确认，不自动播放其他线路。
                 if autoPlay { await tryNextLine() }
             }
-            resolving = false
         }
     }
 
