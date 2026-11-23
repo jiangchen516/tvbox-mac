@@ -297,7 +297,7 @@ struct PlayerView: View {
                 }
                 .overlay(alignment: .center) {
                     // 暂停状态提示：单片画面里没有原生暂停图标，单击切换后容易看不出状态。
-                    if !controller.isPlaying, controller.error == nil {
+                    if controller.isUserPaused, controller.error == nil {
                         VStack(spacing: 8) {
                             Image(systemName: "pause.fill")
                                 .font(.system(size: 30, weight: .bold))
@@ -312,7 +312,7 @@ struct PlayerView: View {
                         .transition(.opacity.combined(with: .scale(scale: 0.92)))
                     }
                 }
-                .animation(.easeInOut(duration: 0.15), value: controller.isPlaying)
+                .animation(.easeInOut(duration: 0.15), value: controller.isUserPaused)
                 .overlay(alignment: .bottom) {
                     // 播放失败（黑屏）时显示 AVPlayer 的错误
                     if let err = controller.error {
