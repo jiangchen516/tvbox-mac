@@ -81,6 +81,7 @@ struct PlayerView: View {
     @State private var hostingWindow: NSWindow?
     // 由 NSWindow 原生全屏通知同步，macOS 会将窗口移入独立 Space。
     @State private var isFullscreen: Bool = false
+    @State private var keepPausedAfterRecovery: Bool = false
     // 本地事件监听器：AVPlayerView 的内部子视图会先吃掉鼠标事件，
     // mouseDown 覆盖/手势都收不到双击（实测）——事件分发前拦截最可靠
     @State private var dblClickMonitor: Any?
@@ -118,6 +119,31 @@ struct PlayerView: View {
             // Esc：退出 macOS 原生全屏
             if isFullscreen { exitFullscreen() }
         }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.willSleepNotification)) { _ in
+            guard playUrl != nil else { return }
+            controller.savePosition()
+            PlayerLog.append("💤 系统即将睡眠，保存位置 \(timeString(controller.currentTime))；唤醒后重连并保持暂停")
+        }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
+            // 唤醒时无论睡前是否在播放，都刷新流并定位；播放必须由用户显式操作。
+            guard playUrl != nil else { return }
+            let resumeAt = controller.currentTime
+            PlayerLog.append("☀️ 系统唤醒，重连并定位到 \(timeString(resumeAt))；等待用户按播放")
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                guard !Task.isCancelled else { return }
+                startResolve(resumeAt: resumeAt, autoPlay: false,
+                             recordHistory: false, retryWhilePaused: true)
+            }
+        }
+        .onChange(of: controller.reconnectRequestID) { requestID in
+            guard requestID > 0 else { return }
+            let resumeAt = controller.currentTime
+            let autoPlay = controller.reconnectAutoPlay
+            PlayerLog.append("🔁 播放器请求自动重连，从 \(timeString(resumeAt)) 恢复（自动播放=\(autoPlay)）")
+            startResolve(resumeAt: resumeAt, autoPlay: autoPlay,
+                         recordHistory: false, retryWhilePaused: !autoPlay)
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { note in
             guard let ownWindow = hostingWindow,
                   let changedWindow = note.object as? NSWindow,
@@ -150,9 +176,12 @@ struct PlayerView: View {
             startResolve()
             showControls()
         }
+        .onChange(of: controller.isPlaying) { playing in
+            if playing { keepPausedAfterRecovery = false }
+        }
         .onChange(of: controller.error) { err in
-            // 播放已开始但 CDN 失败（如区域拒绝/无资源）→ 同一集自动换线路
-            guard err != nil, !resolving else { return }
+            // 播放中断流可自动换线；睡醒后的暂停恢复必须等用户点播放/重连。
+            guard err != nil, !resolving, !keepPausedAfterRecovery else { return }
             Task { await tryNextLine() }
         }
         .onDisappear {
@@ -216,11 +245,19 @@ struct PlayerView: View {
                 .overlay(alignment: .bottom) {
                     // 播放失败（黑屏）时显示 AVPlayer 的错误
                     if let err = controller.error {
-                        Text(err)
-                            .foregroundStyle(.red).font(.caption)
-                            .multilineTextAlignment(.center)
-                            .padding(8).frame(maxWidth: .infinity)
-                            .background(.black.opacity(0.6))
+                        VStack(spacing: 6) {
+                            Text(err)
+                                .foregroundStyle(.red).font(.caption)
+                                .multilineTextAlignment(.center)
+                            Button("重连") {
+                                controller.error = nil
+                                startResolve(resumeAt: controller.currentTime,
+                                             autoPlay: true, recordHistory: false)
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                        .padding(8).frame(maxWidth: .infinity)
+                        .background(.black.opacity(0.6))
                     }
                 }
         } else {
@@ -321,12 +358,19 @@ struct PlayerView: View {
         return String(format: "%.0f KB/s", kbps)
     }
 
-    private func startResolve() {
-        // 退出全屏（双击/Esc）会重新触发 onAppear——已在播的集不重复解析+重播
-        if playUrl != nil, resolveError == nil {
-            PlayerLog.append("▶ 已在播放，跳过重复解析（退出全屏触发的 onAppear）")
+    private func startResolve(
+        resumeAt: Double? = nil,
+        autoPlay: Bool = true,
+        recordHistory: Bool = true,
+        retryWhilePaused: Bool = false
+    ) {
+        // 全屏切换导致 onAppear 重触发时不重新解析；显式断流/唤醒恢复除外。
+        if resumeAt == nil, playUrl != nil, resolveError == nil {
+            PlayerLog.append("▶ 已在播放，跳过重复解析（视图重新出现）")
             return
         }
+        if resumeAt != nil { controller.pause() }
+        keepPausedAfterRecovery = !autoPlay
         resolving = true
         resolveError = nil
         playUrl = nil
@@ -340,19 +384,21 @@ struct PlayerView: View {
                     resolveError = "播放地址无效: \(resolved)"
                     return
                 }
-                // 历史记录
-                await appState.historyStore.addHistory(
-                    HistoryRecord(site: site.id, vodId: vod.vod_id,
-                                  vodIdString: vod.displayId, vodName: vod.vod_name,
-                                  vodPic: vod.vod_pic, episodeTitle: episode.title,
-                                  episodeGroup: episode.group, position: 0))
-                controller.play(url: url, headers: headers)
+                if recordHistory {
+                    await appState.historyStore.addHistory(
+                        HistoryRecord(site: site.id, vodId: vod.vod_id,
+                                      vodIdString: vod.displayId, vodName: vod.vod_name,
+                                      vodPic: vod.vod_pic, episodeTitle: episode.title,
+                                      episodeGroup: episode.group, position: 0))
+                }
+                controller.play(url: url, headers: headers, resumeAt: resumeAt,
+                                autoPlay: autoPlay, retryWhilePaused: retryWhilePaused)
                 playUrl = url
             } catch {
                 PlayerLog.append("❌ 解析失败: \(error.localizedDescription)")
                 resolveError = "解析失败: \(error.localizedDescription)"
-                // 同一集自动换下一组线路
-                await tryNextLine()
+                // 播放中自动重连可换线路；唤醒后的暂停恢复必须等用户确认，不自动播放其他线路。
+                if autoPlay { await tryNextLine() }
             }
             resolving = false
         }
