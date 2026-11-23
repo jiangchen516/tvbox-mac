@@ -29,8 +29,8 @@ struct SearchAllView: View {
     }
     @State private var hit: SearchHit?
 
-    private let perSiteTimeout: TimeInterval = 10
-    private let maxConcurrent = 2
+    private let perSiteTimeout: TimeInterval = 12
+    private let maxConcurrent = 6
 
     private var foundCount: Int { groups.reduce(0) { $0 + $1.vods.count } }
 
@@ -93,7 +93,8 @@ struct SearchAllView: View {
         searchTask?.cancel()
         groups = []
         searchedCount = 0
-        let sites = appState.enabledSites
+        // 只搜索声明支持搜索的站点（searchable=0 多是文件浏览/设置类入口）
+        let sites = appState.enabledSites.filter { $0.searchable == 1 }
         totalCount = sites.count
         running = true
         searchTask = Task {
@@ -115,8 +116,11 @@ struct SearchAllView: View {
                 addNext()
                 for await group in tg {
                     inFlight -= 1
-                    if let group, !group.vods.isEmpty {
-                        groups.append(group)
+                    if let group {
+                        let relevant = group.vods.filter { SearchRelevance.matches($0.vod_name, kw) }
+                        if !relevant.isEmpty {
+                            groups.append(SiteSearchGroup(site: group.site, vods: relevant))
+                        }
                     }
                     searchedCount += 1
                     addNext()
@@ -139,6 +143,19 @@ struct SearchAllView: View {
             PlayerLog.append("🔎 全站搜索 \(site.name) 失败: \(error.localizedDescription.prefix(80))")
             return []
         }
+    }
+}
+
+/// 搜索结果相关性过滤：部分源（如荐影预告片）忽略了关键词，直接返回首页列表。
+enum SearchRelevance {
+    static func matches(_ title: String, _ keyword: String) -> Bool {
+        func normalize(_ s: String) -> String {
+            s.lowercased().filter { $0.isLetter || $0.isNumber }
+        }
+        let k = normalize(keyword)
+        let t = normalize(title)
+        guard !k.isEmpty, !t.isEmpty else { return false }
+        return t.contains(k) || k.contains(t)
     }
 }
 

@@ -22,8 +22,8 @@ struct AllSitesSearchSheet: View {
         var id: String { "\(site.id)#\(vod.id)" }
     }
 
-    private let perSiteTimeout: TimeInterval = 15
-    private let maxConcurrent = 3
+    private let perSiteTimeout: TimeInterval = 12
+    private let maxConcurrent = 6
 
     private var foundCount: Int { groups.reduce(0) { $0 + $1.vods.count } }
 
@@ -114,7 +114,7 @@ struct AllSitesSearchSheet: View {
         searched = 0
         total = appState.enabledSites.count
         running = true
-        let sites = appState.enabledSites
+        let sites = appState.enabledSites.filter { $0.searchable == 1 }
         let kw = keyword
         PlayerLog.append("🔎 首页海报搜索「\(kw)」：\(sites.count) 个启用站点")
         task = Task {
@@ -135,9 +135,14 @@ struct AllSitesSearchSheet: View {
                 addNext()
                 for await group in tg {
                     inFlight -= 1
-                    if let group, !group.vods.isEmpty {
-                        groups.append(group)
-                        PlayerLog.append("✅ 搜索命中 \(group.site.name) → \(group.vods.count) 条")
+                    if let group {
+                        let relevant = group.vods.filter { SearchRelevance.matches($0.vod_name, kw) }
+                        if !relevant.isEmpty {
+                            groups.append(SiteSearchGroup(site: group.site, vods: relevant))
+                            PlayerLog.append("✅ 搜索命中 \(group.site.name) → \(relevant.count) 条")
+                        } else if !group.vods.isEmpty {
+                            PlayerLog.append("⏭ 搜索 \(group.site.name) 返回 \(group.vods.count) 条但与「\(kw)」无关，已过滤")
+                        }
                     }
                     searched += 1
                     addNext()
