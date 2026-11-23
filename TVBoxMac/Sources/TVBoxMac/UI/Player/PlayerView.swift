@@ -88,6 +88,9 @@ struct PlayerView: View {
     @State private var dblClickMonitor: Any?
     // 单击播放/暂停需要等双击判定窗口（0.28s），期间不能立刻切换
     @State private var singleClickWork: DispatchWorkItem?
+    // 激活点击（把后台窗口点到前台）不应被当成播放/暂停
+    @State private var lastAppBecameActive = Date.distantPast
+    @State private var lastWindowBecameKey = Date.distantPast
 
     var body: some View {
         // 控制条在画面下方折叠显隐：显示时画面略缩，隐藏时画面占满——
@@ -165,13 +168,22 @@ struct PlayerView: View {
             isFullscreen = false
             PlayerLog.append("⛶ 退出 macOS 原生全屏 Space")
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            lastAppBecameActive = Date()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in
+            guard let w = note.object as? NSWindow, w === hostingWindow else { return }
+            lastWindowBecameKey = Date()
+        }
         .onAppear {
             dblClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { event in
-                // 只接管播放器窗口内、已有播放画面的点击。底部控制条/按钮区域
-                // 放行给 AVKit 与 SwiftUI，避免和原生播放键互相抵消。
-                guard playUrl != nil,
-                      event.window === hostingWindow,
-                      !Self.isControlAreaClick(event: event, window: hostingWindow) else { return event }
+                // 只接管播放器窗口内、命中视频画面本身的点击：
+                // - 标题栏、SwiftUI 控制条、AVKit 原生按钮/进度条全部放行；
+                // - 用点击把后台窗口带到前台时（激活点击）不切换播放。
+                guard playUrl != nil, event.window === hostingWindow,
+                      Self.isVideoSurfaceClick(event: event),
+                      Date().timeIntervalSince(lastAppBecameActive) > 0.4,
+                      Date().timeIntervalSince(lastWindowBecameKey) > 0.4 else { return event }
 
                 if event.clickCount >= 2 {
                     singleClickWork?.cancel()
@@ -240,15 +252,17 @@ struct PlayerView: View {
         }
     }
 
-    /// 点击是否落在播放器控制区域：窗口底部控制条条带，或 AppKit 控件（原生播放键/进度条）。
-    private static func isControlAreaClick(event: NSEvent, window: NSWindow?) -> Bool {
-        guard let content = window?.contentView else { return true }
-        // SwiftUI 控制条在窗口最底部；AVKit 原生控制条覆盖在画面底部，二者都在下方 ~80pt
-        if event.locationInWindow.y < 80 { return true }
-        var hit = content.hitTest(event.locationInWindow)
-        while let view = hit {
-            if view is NSControl { return true }
-            hit = view.superview
+    /// 点击是否命中视频画面本身：命中链必须到达 AVPlayerView，
+    /// 且中间不能有 AppKit 控件（原生播放键/进度条）。
+    /// 标题栏、SwiftUI 控制条都不在 AVPlayerView 子树内，会被排除。
+    private static func isVideoSurfaceClick(event: NSEvent) -> Bool {
+        guard let content = event.window?.contentView,
+              let hit = content.hitTest(event.locationInWindow) else { return false }
+        var view: NSView? = hit
+        while let current = view {
+            if current is NSControl { return false }
+            if current is AVPlayerView { return true }
+            view = current.superview
         }
         return false
     }
