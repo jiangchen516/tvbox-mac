@@ -86,6 +86,8 @@ struct PlayerView: View {
     // 本地事件监听器：AVPlayerView 的内部子视图会先吃掉鼠标事件，
     // mouseDown 覆盖/手势都收不到双击（实测）——事件分发前拦截最可靠
     @State private var dblClickMonitor: Any?
+    // 单击播放/暂停需要等双击判定窗口（0.28s），期间不能立刻切换
+    @State private var singleClickWork: DispatchWorkItem?
 
     var body: some View {
         // 控制条在画面下方折叠显隐：显示时画面略缩，隐藏时画面占满——
@@ -165,13 +167,34 @@ struct PlayerView: View {
         }
         .onAppear {
             dblClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { event in
-                // 播放器窗口内的双击 → 切换全屏（拦截，不再下发给 AVPlayerView）
-                guard event.clickCount >= 2, event.window === hostingWindow else { return event }
-                DispatchQueue.main.async { toggleFullscreen() }
+                // 只接管播放器窗口内、已有播放画面的点击。底部控制条/按钮区域
+                // 放行给 AVKit 与 SwiftUI，避免和原生播放键互相抵消。
+                guard playUrl != nil,
+                      event.window === hostingWindow,
+                      !Self.isControlAreaClick(event: event, window: hostingWindow) else { return event }
+
+                if event.clickCount >= 2 {
+                    singleClickWork?.cancel()
+                    singleClickWork = nil
+                    DispatchQueue.main.async { toggleFullscreen() }
+                    return nil
+                }
+                if event.clickCount == 1 {
+                    singleClickWork?.cancel()
+                    let work = DispatchWorkItem {
+                        singleClickWork = nil
+                        controller.togglePlayPause()
+                        PlayerLog.append("🖱 单击画面 → \(controller.isPlaying ? "播放" : "暂停")")
+                    }
+                    singleClickWork = work
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.28, execute: work)
+                }
                 return nil
             }
         }
         .onDisappear {
+            singleClickWork?.cancel()
+            singleClickWork = nil
             if let m = dblClickMonitor { NSEvent.removeMonitor(m) }
             dblClickMonitor = nil
         }
@@ -215,6 +238,19 @@ struct PlayerView: View {
                 withAnimation(.easeInOut(duration: 0.2)) { controlsVisible = false }
             }
         }
+    }
+
+    /// 点击是否落在播放器控制区域：窗口底部控制条条带，或 AppKit 控件（原生播放键/进度条）。
+    private static func isControlAreaClick(event: NSEvent, window: NSWindow?) -> Bool {
+        guard let content = window?.contentView else { return true }
+        // SwiftUI 控制条在窗口最底部；AVKit 原生控制条覆盖在画面底部，二者都在下方 ~80pt
+        if event.locationInWindow.y < 80 { return true }
+        var hit = content.hitTest(event.locationInWindow)
+        while let view = hit {
+            if view is NSControl { return true }
+            hit = view.superview
+        }
+        return false
     }
 
     private func hideControls() {
