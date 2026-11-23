@@ -45,7 +45,6 @@ struct PlayerView: View {
     // 控制条自动隐藏：鼠标进入显示，静止 3s（播放中）或移出淡出——与自带播放器同逻辑
     @State private var controlsVisible: Bool = false
     @State private var controlsIdleTask: Task<Void, Never>?
-    @State private var wasPlayingBeforeSleep: Bool = false
 
     var body: some View {
         // 控制条在画面下方折叠显隐：显示时画面略缩，隐藏时画面占满——
@@ -72,23 +71,29 @@ struct PlayerView: View {
             if case .active = phase { showControls() }   // 鼠标移动刷新显示计时
         }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.willSleepNotification)) { _ in
-            wasPlayingBeforeSleep = controller.isPlaying
-            if wasPlayingBeforeSleep {
-                controller.savePosition()
-                PlayerLog.append("💤 系统即将睡眠，保存播放位置 \(timeString(controller.currentTime))")
-            }
+            guard playUrl != nil else { return }
+            controller.savePosition()
+            PlayerLog.append("💤 系统即将睡眠，保存位置 \(timeString(controller.currentTime))（唤醒后重连但保持暂停）")
         }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
-            guard wasPlayingBeforeSleep else { return }
-            wasPlayingBeforeSleep = false
+            // 无论睡前正在播放还是用户手动暂停，都重取流并定位；绝不因唤醒擅自播放。
+            guard playUrl != nil else { return }
             let resumeAt = controller.currentTime
-            PlayerLog.append("☀️ 系统唤醒，重新解析流并从 \(timeString(resumeAt)) 续播")
-            // 等 Wi-Fi/网络栈恢复后重新请求播放地址；旧签名 URL 可能已过期。
+            PlayerLog.append("☀️ 系统唤醒，重连并定位到 \(timeString(resumeAt))；等待用户按播放")
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
                 guard !Task.isCancelled else { return }
-                startResolve(resumeAt: resumeAt)
+                startResolve(resumeAt: resumeAt, autoPlay: false,
+                             recordHistory: false, retryWhilePaused: true)
             }
+        }
+        .onChange(of: controller.reconnectRequestID) { requestID in
+            guard requestID > 0 else { return }
+            let resumeAt = controller.currentTime
+            let autoPlay = controller.reconnectAutoPlay
+            PlayerLog.append("🔁 播放器请求自动重连，从 \(timeString(resumeAt)) 恢复（自动播放=\(autoPlay)）")
+            startResolve(resumeAt: resumeAt, autoPlay: autoPlay,
+                         recordHistory: false, retryWhilePaused: !autoPlay)
         }
         .onAppear {
             let key = "\(site.id)#\(vod.vod_id)#\(episode.group)#\(episode.title)"
@@ -150,11 +155,20 @@ struct PlayerView: View {
                 .overlay(alignment: .bottom) {
                     // 播放失败（黑屏）时显示 AVPlayer 的错误
                     if let err = controller.error {
-                        Text(err)
-                            .foregroundStyle(.red).font(.caption)
-                            .multilineTextAlignment(.center)
-                            .padding(8).frame(maxWidth: .infinity)
-                            .background(.black.opacity(0.6))
+                        VStack(spacing: 6) {
+                            Text(err)
+                                .foregroundStyle(.red).font(.caption)
+                                .multilineTextAlignment(.center)
+                            Button("重连") {
+                                controller.error = nil
+                                startResolve(resumeAt: controller.currentTime,
+                                             autoPlay: true,
+                                             recordHistory: false)
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                        .padding(8).frame(maxWidth: .infinity)
+                        .background(.black.opacity(0.6))
                     }
                 }
         } else {
@@ -255,7 +269,13 @@ struct PlayerView: View {
         return String(format: "%.0f KB/s", kbps)
     }
 
-    private func startResolve(resumeAt: Double? = nil) {
+    private func startResolve(
+        resumeAt: Double? = nil,
+        autoPlay: Bool = true,
+        recordHistory: Bool = true,
+        retryWhilePaused: Bool = false
+    ) {
+        if resumeAt != nil { controller.pause() }
         resolving = true
         resolveError = nil
         playUrl = nil
@@ -269,12 +289,14 @@ struct PlayerView: View {
                     resolveError = "播放地址无效: \(resolved)"
                     return
                 }
-                // 历史记录
-                await appState.historyStore.addHistory(
-                    HistoryRecord(site: site.id, vodId: vod.vod_id, vodName: vod.vod_name,
-                                  episodeTitle: episode.title, episodeGroup: episode.group,
-                                  position: 0))
-                controller.play(url: url, headers: headers, resumeAt: resumeAt)
+                if recordHistory {
+                    await appState.historyStore.addHistory(
+                        HistoryRecord(site: site.id, vodId: vod.vod_id, vodName: vod.vod_name,
+                                      episodeTitle: episode.title, episodeGroup: episode.group,
+                                      position: 0))
+                }
+                controller.play(url: url, headers: headers, resumeAt: resumeAt,
+                                autoPlay: autoPlay, retryWhilePaused: retryWhilePaused)
                 playUrl = url
             } catch {
                 PlayerLog.append("❌ 解析失败: \(error.localizedDescription)")
