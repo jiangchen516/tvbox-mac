@@ -88,39 +88,37 @@ public actor ManagedAndroidSpiderClient: VodFetching {
         }
 
     public func search(site: Site, keyword: String, page: Int) async throws -> VodPage {
-        do {
-            let data = try await call(operation: "search", site: site, arguments: [
-                "keyword": .string(keyword),
-                "page": .number(Double(page))
-            ])
-            let result = try decodeSpiderPage(from: data, page: page, operation: "search")
-            guard result.list.isEmpty else { return result }
-            // 三参搜索空结果时，部分 spider 只实现了两参 searchContent；
-            // 再用两参重试一次（真正的空结果只会多一次快速调用）。
-            return try await searchTwoArgumentFallback(site: site, keyword: keyword, page: page) ?? result
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            if let fallback = try? await searchTwoArgumentFallback(site: site, keyword: keyword, page: page),
-               !fallback.list.isEmpty {
-                return fallback
+        // 不同 spider 实现的重载不一样：三参/两参 × quick 开关。
+        // 依次尝试，返回第一个有结果的组合；都空则视为“没搜到”。
+        let variants: [(twoArg: Bool, quick: Bool)] = page == 1
+            ? [(false, false), (true, false), (false, true), (true, true)]
+            : [(false, false)]
+        var lastError: Error?
+        for variant in variants {
+            do {
+                let data = try await call(operation: "search", site: site, arguments: [
+                    "keyword": .string(keyword),
+                    "page": .number(Double(page)),
+                    "__searchTwoArg": .bool(variant.twoArg),
+                    "__searchQuick": .bool(variant.quick)
+                ])
+                let result = try decodeSpiderPage(from: data, page: page, operation: "search")
+                if !result.list.isEmpty { return result }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                lastError = error
             }
-            // 两参也空：这是“没搜到”，不是站点加载失败，返回空列表而不是抛错。
-            if case ManagedAndroidSpiderError.invalidResponse(let message) = error,
-               message.contains("Bridge 返回空数据") {
-                return VodPage(page: page, pagecount: page, limit: 0, total: 0, list: [])
-            }
-            throw error
         }
+        if let lastError, !Self.isNoResultError(lastError) { throw lastError }
+        return VodPage(page: page, pagecount: page, limit: 0, total: 0, list: [])
     }
 
-    private func searchTwoArgumentFallback(site: Site, keyword: String, page: Int) async throws -> VodPage? {
-        let data = try await call(operation: "search", site: site, arguments: [
-            "keyword": .string(keyword),
-            "page": .number(Double(page)),
-            "__searchTwoArg": .bool(true)
-        ])
-        return try decodeSpiderPage(from: data, page: page, operation: "search")
+    private static func isNoResultError(_ error: Error) -> Bool {
+        if case ManagedAndroidSpiderError.invalidResponse(let message) = error {
+            return message.contains("Bridge 返回空数据")
+        }
+        return false
     }
 
     /// 判断是否为“模拟器网络/DNS 失效”类错误；连续 3 次触发一次自动重启。

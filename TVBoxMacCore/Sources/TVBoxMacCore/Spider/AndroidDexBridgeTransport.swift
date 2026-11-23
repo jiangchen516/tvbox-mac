@@ -112,15 +112,16 @@ private struct BridgeInvokeRequest: Encodable {
         case "search":
             // 部分 spider（如 AppgzGuard）只实现了 searchContent(key, quick) 两参重载，
             // 三参（带页码）会直接返回空；此时用内部标记退回两参调用。
+            let quick: JSONValue = request.arguments["__searchQuick"] ?? .bool(false)
             if case .bool(true)? = request.arguments["__searchTwoArg"] {
                 arguments = [
                     request.arguments["keyword"] ?? .string(""),
-                    .bool(false)
+                    quick
                 ]
             } else {
                 arguments = [
                     request.arguments["keyword"] ?? .string(""),
-                    .bool(false),
+                    quick,
                     request.arguments["page"].map(Self.stringValue) ?? .string("1")
                 ]
             }
