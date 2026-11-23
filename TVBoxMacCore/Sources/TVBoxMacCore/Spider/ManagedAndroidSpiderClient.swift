@@ -88,11 +88,39 @@ public actor ManagedAndroidSpiderClient: VodFetching {
         }
 
     public func search(site: Site, keyword: String, page: Int) async throws -> VodPage {
-                let data = try await call(operation: "search", site: site, arguments: [
-                        "keyword": .string(keyword),
-                        "page": .number(Double(page))
-                ])
-                return try decodeSpiderPage(from: data, page: page, operation: "search")
+        do {
+            let data = try await call(operation: "search", site: site, arguments: [
+                "keyword": .string(keyword),
+                "page": .number(Double(page))
+            ])
+            let result = try decodeSpiderPage(from: data, page: page, operation: "search")
+            guard result.list.isEmpty else { return result }
+            // 三参搜索空结果时，部分 spider 只实现了两参 searchContent；
+            // 再用两参重试一次（真正的空结果只会多一次快速调用）。
+            return try await searchTwoArgumentFallback(site: site, keyword: keyword, page: page) ?? result
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            if let fallback = try? await searchTwoArgumentFallback(site: site, keyword: keyword, page: page),
+               !fallback.list.isEmpty {
+                return fallback
+            }
+            // 两参也空：这是“没搜到”，不是站点加载失败，返回空列表而不是抛错。
+            if case ManagedAndroidSpiderError.invalidResponse(let message) = error,
+               message.contains("Bridge 返回空数据") {
+                return VodPage(page: page, pagecount: page, limit: 0, total: 0, list: [])
+            }
+            throw error
+        }
+    }
+
+    private func searchTwoArgumentFallback(site: Site, keyword: String, page: Int) async throws -> VodPage? {
+        let data = try await call(operation: "search", site: site, arguments: [
+            "keyword": .string(keyword),
+            "page": .number(Double(page)),
+            "__searchTwoArg": .bool(true)
+        ])
+        return try decodeSpiderPage(from: data, page: page, operation: "search")
     }
 
     /// 判断是否为“模拟器网络/DNS 失效”类错误；连续 3 次触发一次自动重启。

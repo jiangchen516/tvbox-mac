@@ -110,11 +110,20 @@ private struct BridgeInvokeRequest: Encodable {
                 .object([:])
             ]
         case "search":
-            arguments = [
-                request.arguments["keyword"] ?? .string(""),
-                .bool(false),
-                request.arguments["page"].map(Self.stringValue) ?? .string("1")
-            ]
+            // 部分 spider（如 AppgzGuard）只实现了 searchContent(key, quick) 两参重载，
+            // 三参（带页码）会直接返回空；此时用内部标记退回两参调用。
+            if case .bool(true)? = request.arguments["__searchTwoArg"] {
+                arguments = [
+                    request.arguments["keyword"] ?? .string(""),
+                    .bool(false)
+                ]
+            } else {
+                arguments = [
+                    request.arguments["keyword"] ?? .string(""),
+                    .bool(false),
+                    request.arguments["page"].map(Self.stringValue) ?? .string("1")
+                ]
+            }
         case "detail":
             arguments = [.array([request.arguments["vodId"].map(Self.stringValue) ?? .string("0")])]
         case "play":

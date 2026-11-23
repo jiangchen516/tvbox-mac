@@ -5,6 +5,7 @@ private actor FakeDexTransport: AndroidDexBridgeTransport {
     private let responses: [AndroidDexBridgeResponse]
     private var responseIndex = 0
     private(set) var lastSentRequest: AndroidDexBridgeRequest?
+    private(set) var sentRequests: [AndroidDexBridgeRequest] = []
 
     init(response: AndroidDexBridgeResponse) {
         self.responses = [response]
@@ -16,6 +17,7 @@ private actor FakeDexTransport: AndroidDexBridgeTransport {
 
     func send(_ request: AndroidDexBridgeRequest) async throws -> AndroidDexBridgeResponse {
         lastSentRequest = request
+        sentRequests.append(request)
         let response = responses[min(responseIndex, responses.count - 1)]
         responseIndex += 1
         return response
@@ -141,6 +143,29 @@ final class ManagedAndroidSpiderClientTests: XCTestCase {
             XCTAssertTrue(error.localizedDescription.contains("播放接口没有返回地址"))
             XCTAssertFalse(error.localizedDescription.contains("jar 里可能没有"))
         }
+    }
+
+    // 瓜子 AppgzGuard 只实现 searchContent(key, quick)：三参搜索返回空，
+    // 客户端必须自动退回两参再搜一次。
+    func testSearchFallsBackToTwoArgumentSpiders() async throws {
+        let transport = FakeDexTransport(responses: [
+            AndroidDexBridgeResponse(id: "1", ok: true, data: .string("")),
+            AndroidDexBridgeResponse(id: "2", ok: true, data: .object([
+                "list": .array([.object([
+                    "vod_id": .string("136609"),
+                    "vod_name": .string("两京十五日")
+                ])])
+            ]))
+        ])
+        let client = ManagedAndroidSpiderClient(transport: transport)
+        let site = Site(key: "瓜子", name: "瓜子", api: "csp_AppgzGuard", type: 3)
+
+        let result = try await client.search(site: site, keyword: "两京十五日", page: 1)
+
+        XCTAssertEqual(result.list.first?.vod_name, "两京十五日")
+        let requests = await transport.sentRequests
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertEqual(requests.last?.arguments["__searchTwoArg"], .bool(true))
     }
 
     func testPlayResponseRequiresUrl() async throws {
