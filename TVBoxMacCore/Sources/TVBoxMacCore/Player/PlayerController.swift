@@ -27,6 +27,7 @@ public final class PlayerController: ObservableObject {
     private let maxAutomaticReconnectAttempts = 3
     private var playbackIntent = false
     private var reconnectWhilePaused = false
+    private var lastTimeControlStatus: AVPlayer.TimeControlStatus = .paused
     @Published public private(set) var reconnectRequestID: Int = 0
     @Published public private(set) var reconnectAutoPlay: Bool = false
     private var lastSpeedRead: TimeInterval = 0   // 网速读取限频（5s 一次，降低对加载管线的干扰）
@@ -75,6 +76,14 @@ public final class PlayerController: ObservableObject {
             let status = p.timeControlStatus
             let item = p.currentItem
             PlayerLog.append("timeControlStatus=\(status.rawValue) t=\(PlayerLog.safeInt(p.currentTime().seconds))s")
+            if status != self?.lastTimeControlStatus {
+                self?.lastTimeControlStatus = status
+                // 从暂停恢复到播放时重置停滞计时：否则暂停前的时间戳
+                // 会让“刚恢复、正在缓冲”被误判为断流并触发重连。
+                if status == .playing {
+                    self?.lastPlaybackProgressCAC = CACurrentMediaTime()
+                }
+            }
             // 原生 AVPlayerView 的播放/暂停控制不经过 SwiftUI 按钮，借助 KVO
             // 同步播放意图，供停滞重连判断；系统唤醒恢复始终显式保持暂停。
             if status == .playing || status == .paused {
@@ -297,6 +306,10 @@ public final class PlayerController: ObservableObject {
     public func resume() {
         playbackIntent = true
         reconnectWhilePaused = false
+        // 暂停期间时间戳会变旧；恢复播放时重新计时，避免刚恢复就误判断流重连。
+        lastObservedPlaybackTime = currentTime
+        lastPlaybackProgressCAC = CACurrentMediaTime()
+        automaticReconnectAttempts = 0
         player.play()
         if rate != 1 { player.rate = rate }
         isPlaying = true
