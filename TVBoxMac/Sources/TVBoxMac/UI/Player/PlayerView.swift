@@ -295,6 +295,24 @@ struct PlayerView: View {
                     .background(.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
                     .padding(8)
                 }
+                .overlay(alignment: .center) {
+                    // 暂停状态提示：单片画面里没有原生暂停图标，单击切换后容易看不出状态。
+                    if !controller.isPlaying, controller.error == nil {
+                        VStack(spacing: 8) {
+                            Image(systemName: "pause.fill")
+                                .font(.system(size: 30, weight: .bold))
+                            Text("已暂停")
+                                .font(.callout)
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 26)
+                        .padding(.vertical, 18)
+                        .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 14))
+                        .allowsHitTesting(false)   // 点击仍落到视频画面，单击即可继续播放
+                        .transition(.opacity.combined(with: .scale(scale: 0.92)))
+                    }
+                }
+                .animation(.easeInOut(duration: 0.15), value: controller.isPlaying)
                 .overlay(alignment: .bottom) {
                     // 播放失败（黑屏）时显示 AVPlayer 的错误
                     if let err = controller.error {
