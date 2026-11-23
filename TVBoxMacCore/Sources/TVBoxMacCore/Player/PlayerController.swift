@@ -63,8 +63,16 @@ public final class PlayerController: ObservableObject {
                 if let err = item.error { PlayerLog.append("item.error 详情: \(err)") }
             }
         }
-        tcObservation = player.observe(\.timeControlStatus, options: [.new]) { p, _ in
-            PlayerLog.append("timeControlStatus=\(p.timeControlStatus.rawValue) t=\(PlayerLog.safeInt(p.currentTime().seconds))s")
+        tcObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] p, _ in
+            let status = p.timeControlStatus
+            PlayerLog.append("timeControlStatus=\(status.rawValue) t=\(PlayerLog.safeInt(p.currentTime().seconds))s")
+            // 原生 AVPlayerView 的播放/暂停控制不经过自定义按钮，跟踪真实状态，
+            // 这样睡眠恢复不会把用户手动暂停的视频意外重新播放。
+            if status == .playing || status == .paused {
+                DispatchQueue.main.async { [weak self] in
+                    self?.isPlaying = status == .playing
+                }
+            }
         }
         logObservers.append(NotificationCenter.default.addObserver(
             forName: .AVPlayerItemNewAccessLogEntry, object: nil, queue: .main
@@ -140,7 +148,7 @@ public final class PlayerController: ObservableObject {
     }
 
     /// 起播；headers 通过 AVURLAsset 的 httpHeader 传入（部分源需 UA/Referer）
-    public func play(url: URL, headers: [String: String] = [:]) {
+    public func play(url: URL, headers: [String: String] = [:], resumeAt: Double? = nil) {
         error = nil
         ensureObservers()
         PlayerLog.append("▶ play \(url.absoluteString) headers=\(headers.isEmpty ? "无" : "\(headers.count) 项")")
@@ -154,19 +162,25 @@ public final class PlayerController: ObservableObject {
         player.replaceCurrentItem(with: AVPlayerItem(asset: asset))
         playStartCAC = CACurrentMediaTime()
         initialTimeoutFired = false
-        // 断点续播
-        if let key = positionKey {
-            let pos = UserDefaults.standard.double(forKey: "tvboxpos.\(key)")
-            if pos > 5 && pos.isFinite {
-                PlayerLog.append("续播 seek 到 \(PlayerLog.safeInt(pos))s（0.8s 后）")
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
-                    guard let self else { return }
-                    self.currentTime = pos
-                    self.player.seek(to: CMTime(seconds: pos, preferredTimescale: 600))
-                }
+        // 断点续播：唤醒恢复时优先用睡眠前精确位置，否则读取常规自动保存位置。
+        let savedPosition: Double?
+        if let resumeAt {
+            savedPosition = resumeAt
+        } else if let key = positionKey {
+            savedPosition = UserDefaults.standard.double(forKey: "tvboxpos.\(key)")
+        } else {
+            savedPosition = nil
+        }
+        if let pos = savedPosition, pos > 5, pos.isFinite {
+            PlayerLog.append("续播 seek 到 \(PlayerLog.safeInt(pos))s（0.8s 后）")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+                guard let self else { return }
+                self.currentTime = pos
+                self.player.seek(to: CMTime(seconds: pos, preferredTimescale: 600))
             }
         }
         player.play()
+        if rate != 1 { player.rate = rate }
         isPlaying = true
         currentTime = 0
     }
@@ -238,7 +252,7 @@ public final class PlayerController {
     public var error: String? { nil }
 
     public init() {}
-    public func play(url: URL, headers: [String: String] = [:]) {}
+    public func play(url: URL, headers: [String: String] = [:], resumeAt: Double? = nil) {}
     public func setPositionKey(_ key: String) {}
     public func pause() {}
     public func resume() {}

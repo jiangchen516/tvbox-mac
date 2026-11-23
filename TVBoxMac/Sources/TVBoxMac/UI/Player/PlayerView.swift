@@ -3,6 +3,7 @@ import SwiftUI
 import TVBoxMacCore
 #if canImport(AVKit)
 import AVKit
+import AppKit
 import SwiftUI
 
 /// 直接包 AVKit 的 AppKit 视图 AVPlayerView（ObjC），
@@ -44,6 +45,7 @@ struct PlayerView: View {
     // 控制条自动隐藏：鼠标进入显示，静止 3s（播放中）或移出淡出——与自带播放器同逻辑
     @State private var controlsVisible: Bool = false
     @State private var controlsIdleTask: Task<Void, Never>?
+    @State private var wasPlayingBeforeSleep: Bool = false
 
     var body: some View {
         // 控制条在画面下方折叠显隐：显示时画面略缩，隐藏时画面占满——
@@ -68,6 +70,25 @@ struct PlayerView: View {
         }
         .onContinuousHover { phase in
             if case .active = phase { showControls() }   // 鼠标移动刷新显示计时
+        }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.willSleepNotification)) { _ in
+            wasPlayingBeforeSleep = controller.isPlaying
+            if wasPlayingBeforeSleep {
+                controller.savePosition()
+                PlayerLog.append("💤 系统即将睡眠，保存播放位置 \(timeString(controller.currentTime))")
+            }
+        }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
+            guard wasPlayingBeforeSleep else { return }
+            wasPlayingBeforeSleep = false
+            let resumeAt = controller.currentTime
+            PlayerLog.append("☀️ 系统唤醒，重新解析流并从 \(timeString(resumeAt)) 续播")
+            // 等 Wi-Fi/网络栈恢复后重新请求播放地址；旧签名 URL 可能已过期。
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                guard !Task.isCancelled else { return }
+                startResolve(resumeAt: resumeAt)
+            }
         }
         .onAppear {
             let key = "\(site.id)#\(vod.vod_id)#\(episode.group)#\(episode.title)"
@@ -234,7 +255,7 @@ struct PlayerView: View {
         return String(format: "%.0f KB/s", kbps)
     }
 
-    private func startResolve() {
+    private func startResolve(resumeAt: Double? = nil) {
         resolving = true
         resolveError = nil
         playUrl = nil
@@ -253,7 +274,7 @@ struct PlayerView: View {
                     HistoryRecord(site: site.id, vodId: vod.vod_id, vodName: vod.vod_name,
                                   episodeTitle: episode.title, episodeGroup: episode.group,
                                   position: 0))
-                controller.play(url: url, headers: headers)
+                controller.play(url: url, headers: headers, resumeAt: resumeAt)
                 playUrl = url
             } catch {
                 PlayerLog.append("❌ 解析失败: \(error.localizedDescription)")
