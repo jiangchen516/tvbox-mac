@@ -70,6 +70,13 @@ struct PlayerView: View {
         .onContinuousHover { phase in
             if case .active = phase { showControls() }   // 鼠标移动刷新显示计时
         }
+        .onExitCommand {
+            // Escape：退出 macOS 原生全屏，回到进入前的工作区。
+            guard let window = NSApp.keyWindow,
+                  window.styleMask.contains(.fullScreen) else { return }
+            PlayerLog.append("⛶ Escape 退出全屏")
+            window.toggleFullScreen(nil)
+        }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.willSleepNotification)) { _ in
             guard playUrl != nil else { return }
             controller.savePosition()
