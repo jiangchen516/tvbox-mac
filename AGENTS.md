@@ -27,7 +27,7 @@ bash scripts/make-app-bundle.sh
 - 不把任何真实影视/直播源地址写进 README、HANDOFF、提交信息或聊天；仓库不内置任何源。
 - 不重装 Android SDK、AVD `TVBoxMac_Runtime`、Bridge APK——本机已具备。
 - 不改 `Package.swift` 的 target 布局；不做与任务无关的大重构。
-- 不 `git push`、不 force push、不靠删测试让测试变绿。
+- 不 `git push`、不 force push、不靠删测试让测试变绿；用户明确要求推送时除外。
 - 直播的已知不支持面（spider 动态直播、EPG/回看、`proxy://` 等非 http(s)）只做明确提示，不当 bug 修。
 - 分支：小改动直接 `main`；大改开短分支，合并前必须本机验证。
 
