@@ -174,7 +174,7 @@ if [ "$WITH_BRIDGE" -eq 1 ]; then
     JAVA_HOME="$JDK17" bash scripts/build-android-bridge.sh
   fi
 else
-  warn "跳过 Bridge APK。需要 jar 源时再执行: bash scripts/setup.sh --android --with-bridge"
+  echo "ℹ️  Bridge APK 未在本次安装中构建（setup.sh 默认会在缺失时自动构建）"
 fi
 
 echo ""

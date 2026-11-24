@@ -44,18 +44,21 @@ CatVod（`type=1`）与 JS Spider 源**不需要**以下任何组件。要让 `t
 一键安装（推荐，Apple Silicon）：
 
 ```bash
-bash scripts/setup.sh --android               # SDK 组件 + AVD
-bash scripts/setup.sh --android --with-bridge # 再加 Bridge APK（JDK 17）
-# 或单独执行：
+bash scripts/setup.sh                 # 默认就把下面 1-4 全部做完，再构建 App
+bash scripts/setup.sh --no-android    # 只想用 CatVod/JS 源时，跳过以下全部
+# 或单独执行运行时安装：
 bash scripts/install-android-runtime.sh [--yes] [--with-bridge]
 ```
 
-脚本会：
+`setup.sh` 默认会：
 
 1. 缺少 cmdline-tools 时下载 Google 官方包；
 2. 用 `sdkmanager` / 新版 `android sdk install` 安装缺失组件（约 1.5GB，已安装的跳过，不会删除任何东西）；
 3. 在 `~/Library/Application Support/TVBoxMac/managed-android-runtime/avd` 创建 `TVBoxMac_Runtime`（avdmanager 失败时手写 AVD 配置兜底）；
-4. 传 `--with-bridge` 时才构建并签名 Bridge APK（需要 JDK 17，会联网拉 Gradle）。
+4. 若 `.build/AndroidDexBridge-release.apk` 不存在，自动找 JDK 17 构建并签名 Bridge（需要联网拉 Gradle）。
+
+> **Bridge 是必需的吗？** 只对 `csp_` / `type=3` 的 jar 源必需：它是跑在模拟器里的 APK，负责加载 dex/jar 并暴露 HTTP 桥。没有它，CatVod、JS Spider、豆瓣首页、搜索/历史/播放器都正常，只是 jar 源不可用。
+> **JDK 17 是必需的吗？** 只在「从源码构建 Bridge」时需要；已经有 APK 就不需要 JDK。安装：`brew install openjdk@17`。
 
 | 依赖 | 要求 | 用途 |
 |---|---|---|
@@ -83,11 +86,10 @@ bash scripts/install-android-runtime.sh [--yes] [--with-bridge]
 git clone https://github.com/jiangchen516/tvbox-mac.git
 cd tvbox-mac
 
-bash scripts/setup.sh              # 环境自检 + release 构建 + 生成 TVBoxMac.app
-bash scripts/setup.sh --test       # 额外跑单测（81 个，全 mock、不联网）
-bash scripts/setup.sh --run        # 构建后直接运行
-bash scripts/setup.sh --android    # 先安装/检查 Android 运行时依赖（SDK 组件 + AVD）
-bash scripts/setup.sh --android --with-bridge   # 同上，并构建 Bridge APK（需 JDK 17）
+bash scripts/setup.sh              # 默认：装齐 SDK/AVD/Bridge + 构建 + 打包
+bash scripts/setup.sh --test       # 同上并跑单测（81 个，全 mock、不联网）
+bash scripts/setup.sh --run        # 同上并直接运行
+bash scripts/setup.sh --no-android # 只构建 App（CatVod/JS 可用，jar 源不可用）
 
 # 或手动：
 swift build -c release
