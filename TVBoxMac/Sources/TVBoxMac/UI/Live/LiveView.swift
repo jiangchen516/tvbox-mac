@@ -24,6 +24,8 @@ struct LiveView: View {
     @State private var urlIndex: Int = 0
     @State private var playError: String?
 
+    @State private var showChannelDrawer: Bool = false
+    @State private var drawerHideGeneration: Int = 0
     @State private var hostedWindow: NSWindow?
     @State private var isFullscreen: Bool = false
     @State private var isAlwaysOnTop: Bool = false
@@ -51,6 +53,8 @@ struct LiveView: View {
         Group {
             if sources.isEmpty {
                 emptySources
+            } else if isFullscreen {
+                fullscreenPlayer
             } else {
                 HSplitView {
                     channelPane
@@ -85,6 +89,11 @@ struct LiveView: View {
         .onChange(of: selectedChannelID) { id in
             guard let id, let channel = channel(withID: id) else { return }
             play(channel)
+            // 全屏时选完台自动收起频道栏，把画面还给视频
+            if isFullscreen {
+                cancelDrawerHide()
+                withAnimation(.easeIn(duration: 0.15)) { showChannelDrawer = false }
+            }
         }
         .onChange(of: controller.error) { error in
             guard let error, let channel = currentChannel else { return }
@@ -98,7 +107,19 @@ struct LiveView: View {
             }
         }
         .onExitCommand {
-            if isFullscreen { toggleFullscreen() }
+            if isFullscreen, showChannelDrawer {
+                // 全屏下 Esc 先收起频道栏，再按一次才退出全屏
+                cancelDrawerHide()
+                withAnimation(.easeIn(duration: 0.15)) { showChannelDrawer = false }
+            } else if isFullscreen {
+                toggleFullscreen()
+            }
+        }
+        .onChange(of: isFullscreen) { full in
+            if !full {
+                drawerHideGeneration += 1
+                showChannelDrawer = false
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { note in
             guard let own = hostedWindow, (note.object as? NSWindow) === own else { return }
@@ -112,6 +133,63 @@ struct LiveView: View {
             controller.stop()
             hostedWindow?.level = .normal
             isAlwaysOnTop = false
+        }
+    }
+
+    // MARK: - 全屏布局（视频铺满，左边缘滑出频道栏）
+
+    private var fullscreenPlayer: some View {
+        ZStack(alignment: .leading) {
+            playerPane
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            // 左边缘热区：鼠标靠近时滑出频道栏。频道栏是浮层，不参与布局，
+            // 所以全屏时视频始终铺满整个窗口。
+            Rectangle()
+                .fill(Color.clear)
+                .frame(width: 26)
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .onHover { inside in
+                    if inside { revealDrawer() } else { scheduleDrawerHide() }
+                }
+
+            if showChannelDrawer {
+                channelPane
+                    .frame(width: 300)
+                    .frame(maxHeight: .infinity)
+                    .background(.regularMaterial)
+                    .overlay(alignment: .trailing) { Divider() }
+                    .shadow(color: .black.opacity(0.35), radius: 12, x: 4)
+                    .transition(.move(edge: .leading))
+                    .onHover { inside in
+                        if inside { cancelDrawerHide() } else { scheduleDrawerHide() }
+                    }
+                    .zIndex(2)
+            }
+        }
+        .animation(.easeOut(duration: 0.18), value: showChannelDrawer)
+        .background(Color.black)
+    }
+
+    private func revealDrawer() {
+        drawerHideGeneration += 1
+        guard !showChannelDrawer else { return }
+        withAnimation(.easeOut(duration: 0.18)) { showChannelDrawer = true }
+    }
+
+    /// 取消待执行的收起（鼠标又回到频道栏里）
+    private func cancelDrawerHide() {
+        drawerHideGeneration += 1
+    }
+
+    /// 鼠标离开后延迟收起，避免从热区滑进频道栏的途中被误关
+    private func scheduleDrawerHide() {
+        drawerHideGeneration += 1
+        let generation = drawerHideGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            guard generation == drawerHideGeneration else { return }
+            withAnimation(.easeIn(duration: 0.15)) { showChannelDrawer = false }
         }
     }
 
