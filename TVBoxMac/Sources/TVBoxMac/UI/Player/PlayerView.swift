@@ -42,6 +42,9 @@ struct PlayerView: View {
     @State private var lastLineFailure: String?
     // 方向键监听：左右跳转、上下吞掉（原来会误触发暂停）
     @State private var keyMonitor: Any?
+    // 只在真正起播后写观看历史：解析成功但随后失败/换线的线路不记入历史
+    @State private var shouldRecordHistory = false
+    @State private var historyRecorded = false
 
     var body: some View {
         // 控制条在画面下方折叠显隐：显示时画面略缩，隐藏时画面占满——
@@ -198,6 +201,12 @@ struct PlayerView: View {
                 keepPausedAfterRecovery = false
                 lastLineFailure = nil
             }
+        }
+        .onChange(of: controller.currentTime) { t in
+            // 真正出画（>1 秒）才记历史；解析成功但播不了的线路不写
+            guard shouldRecordHistory, !historyRecorded, t > 1 else { return }
+            historyRecorded = true
+            recordHistoryNow()
         }
         .onChange(of: controller.error) { err in
             // 播放中断流可自动换线；睡醒后的暂停恢复必须等用户点播放/重连。
@@ -407,6 +416,17 @@ struct PlayerView: View {
         }
     }
 
+    /// 起播确认后写历史（失败线路不写）
+    private func recordHistoryNow() {
+        Task {
+            await appState.historyStore.addHistory(
+                HistoryRecord(site: site.id, vodId: vod.vod_id,
+                              vodIdString: vod.displayId, vodName: vod.vod_name,
+                              vodPic: vod.vod_pic, episodeTitle: episode.title,
+                              episodeGroup: episode.group, position: 0))
+        }
+    }
+
     /// 方向键跳转：←/→ 10 秒，Shift+←/→ 30 秒；夹在 [0, duration] 内。
     private func seekBy(_ delta: Double) {
         let upper = controller.duration.isFinite && controller.duration > 1
@@ -446,6 +466,8 @@ struct PlayerView: View {
             return
         }
         if resumeAt != nil { controller.pause() }
+        shouldRecordHistory = recordHistory
+        historyRecorded = false
         keepPausedAfterRecovery = !autoPlay
         resolving = true
         resolveError = nil
@@ -475,13 +497,6 @@ struct PlayerView: View {
                 // 不用等 AVPlayer 的 12 秒兜底。
                 let playable = try await appState.streamPreflight.prepare(url, headers: headers)
                 PlayerLog.append("✔ 播放预检通过（\(playable == url ? "代理播放列表" : "上游直链")）")
-                if recordHistory {
-                    await appState.historyStore.addHistory(
-                        HistoryRecord(site: site.id, vodId: vod.vod_id,
-                                      vodIdString: vod.displayId, vodName: vod.vod_name,
-                                      vodPic: vod.vod_pic, episodeTitle: episode.title,
-                                      episodeGroup: episode.group, position: 0))
-                }
                 controller.play(url: playable, headers: headers, resumeAt: resumeAt,
                                 autoPlay: autoPlay, retryWhilePaused: retryWhilePaused)
                 playUrl = playable
