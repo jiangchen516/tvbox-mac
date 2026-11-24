@@ -1,6 +1,6 @@
 # TVBoxMac 交接文档（当前状态）
 
-> 更新时间：2026-11-24 ｜ 分支：`main` ｜ 版本：0.2.1 ｜ 测试：104/104
+> 更新时间：2026-11-24 ｜ 分支：`main` ｜ 版本：0.2.1 ｜ 测试：121/121
 > 仓库已公开：https://github.com/jiangchen516/tvbox-mac
 > 本文件是给“新会话/新接手者”的入口；依赖细节以 `README.md` 为准。
 
@@ -39,7 +39,7 @@ e5e07c5 docs: rewrite README with dependencies and public-repo notes
 
 ```bash
 bash scripts/setup.sh            # 默认：装齐 SDK/AVD/Bridge + 构建 + 打包
-bash scripts/setup.sh --test     # 额外跑 104 个单测
+bash scripts/setup.sh --test     # 额外跑 121 个单测
 bash scripts/setup.sh --run      # 构建后直接运行
 bash scripts/setup.sh --no-android  # 不用 jar 源时，只构建 App
 ```
@@ -57,7 +57,7 @@ bash scripts/setup.sh --no-android  # 不用 jar 源时，只构建 App
 
 ```bash
 swift build -c release
-swift test                                   # 104 tests
+swift test                                   # 121 tests
 bash scripts/make-app-bundle.sh              # TVBoxMac.app + dist/TVBoxMac.app.zip
 ```
 

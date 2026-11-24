@@ -38,81 +38,39 @@ TVBox 的 macOS 原生移植（Swift + SwiftUI + AVFoundation + JavaScriptCore�
 > export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 > ```
 
-### 可选（只影响 `csp_` / jar 型 Spider 源）
+### 可选：Android 运行时（只影响 `csp_` / jar 源）
 
-CatVod（`type=1`）与 JS Spider 源**不需要**以下任何组件。要让 `type=3` / `csp_` 的 Android Dex 源在本机运行，才需要：
+CatVod（`type=1`）和 JS Spider 源不需要它；只有 `type=3` / `csp_` 的 Dex 源要在本机跑模拟器时才需要：
 
-一键安装（推荐，Apple Silicon）：
+| 组件 | 说明 |
+|---|---|
+| Android SDK | `platform-tools/adb`、`emulator`，默认 `~/Library/Android/sdk` |
+| 系统镜像 | `system-images;android-35;google_apis;arm64-v8a` |
+| AVD | `TVBoxMac_Runtime`（`~/Library/Application Support/TVBoxMac/managed-android-runtime/avd`） |
+| Bridge APK | `.build/AndroidDexBridge-release.apk`，存在时自动打进 `.app` |
+| 端口 | 模拟器 console 5556；Bridge 9978/9979；宿主机转发 19978/19979；专用 ADB 5038 |
 
-```bash
-bash scripts/setup.sh                 # 默认就把下面 1-4 全部做完，再构建 App
-bash scripts/setup.sh --no-android    # 只想用 CatVod/JS 源时，跳过以下全部
-# 或单独执行运行时安装：
-bash scripts/install-android-runtime.sh [--yes] [--with-bridge]
-```
+`bash scripts/setup.sh` 会按需下载 cmdline-tools、安装缺失组件（约 1.5 GB，已装跳过）、创建 AVD；
+没有 Bridge APK 时会用 JDK 17 现场构建（`brew install openjdk@17`）。仓库不包含这些组件。
 
-`setup.sh` 默认会：
-
-1. 缺少 cmdline-tools 时下载 Google 官方包；
-2. 用 `sdkmanager` / 新版 `android sdk install` 安装缺失组件（约 1.5GB，已安装的跳过，不会删除任何东西）；
-3. 在 `~/Library/Application Support/TVBoxMac/managed-android-runtime/avd` 创建 `TVBoxMac_Runtime`（avdmanager 失败时手写 AVD 配置兜底）；
-4. 若 `.build/AndroidDexBridge-release.apk` 不存在，自动找 JDK 17 构建并签名 Bridge（需要联网拉 Gradle）。
-
-> **Bridge 是必需的吗？** 只对 `csp_` / `type=3` 的 jar 源必需：它是跑在模拟器里的 APK，负责加载 dex/jar 并暴露 HTTP 桥。没有它，CatVod、JS Spider、豆瓣首页、搜索/历史/播放器都正常，只是 jar 源不可用。
-> **JDK 17 是必需的吗？** 只在「从源码构建 Bridge」时需要；已经有 APK 就不需要 JDK。安装：`brew install openjdk@17`。
-
-| 依赖 | 要求 | 用途 |
-|---|---|---|
-| Android SDK | 含 `platform-tools/adb`、`emulator`，默认路径 `~/Library/Android/sdk` | 启动受控模拟器、端口转发 |
-| 系统镜像 | `system-images;android-35;google_apis;arm64-v8a` | 模拟器系统 |
-| AVD | 名称 **`TVBoxMac_Runtime`**，放在 `~/Library/Application Support/TVBoxMac/managed-android-runtime/avd` | 应用启动的虚拟设备 |
-| Bridge APK | `com.okvideomac.dexbridge`，构建产物 `.build/AndroidDexBridge-release.apk`；存在时会被打进 `.app/Contents/Resources` | 在模拟器内加载 jar、暴露 HTTP 桥 |
-| ADB server | 应用使用**独立端口 5038**（不占用 Android Studio 的 5037） | 退出时只关闭自己的 server |
-| 端口 | 模拟器 console `5556`、Bridge `9978/9979`，宿主机转发 `19978/19979` | 桥通信与播放代理 |
-
-**仓库不包含** Android SDK、模拟器、系统镜像、AVD 或 Bridge APK：这些都由上述脚本在本机安装/构建。
-`.app` 中只会在 `.build/AndroidDexBridge-release.apk` 存在时附带 Bridge（打包脚本自动复制），模拟器与 AVD 始终不在包内。
-
-### 外部网络服务
-
-| 服务 | 用途 | 说明 |
-|---|---|---|
-| 各配置源站点 | 浏览/搜索/播放 | 由用户导入的配置决定 |
-| 豆瓣 rexxar API（`m.douban.com`） | 首页推荐数据 | 需要移动端 UA + `Referer: https://m.douban.com/` |
-| B 站 `api.bilibili.com` | 哔哔合集等 DASH 源转 mp4 | 匿名最高 360P；高画质需 Cookie（未实现） |
-
-## 构建 / 测试 / 打包
+### 安装 / 构建
 
 ```bash
 git clone https://github.com/jiangchen516/tvbox-mac.git
 cd tvbox-mac
 
-bash scripts/setup.sh              # 默认：装齐 SDK/AVD/Bridge + 构建 + 打包
-bash scripts/setup.sh --test       # 同上并跑单测（104 个，全 mock、不联网）
-bash scripts/setup.sh --run        # 同上并直接运行
-bash scripts/setup.sh --no-android # 只构建 App（CatVod/JS 可用，jar 源不可用）
+# 一键（推荐）：装 Android 运行时 + 构建 + 打包
+bash scripts/setup.sh
+bash scripts/setup.sh --run          # 装完直接启动
+bash scripts/setup.sh --test         # 额外跑单测（121 个，全 mock）
+bash scripts/setup.sh --no-android   # 只用 CatVod/JS 源时跳过 Android 运行时
 
-# 或手动（只编译/打包，不会安装 Android SDK、模拟器、AVD 或 Bridge）：
-swift build -c release
-swift test                         # 104 tests
-bash scripts/make-app-bundle.sh    # TVBoxMac.app + dist/TVBoxMac.app.zip（ad-hoc 签名）
+# 只改了代码（运行时已装好）：编译 + 测试 + 打包
+swift build -c release && swift test && bash scripts/make-app-bundle.sh
 ```
 
-> ⚠️ 手动命令**不会**安装 Android 运行时。这样打出来的 App 只有 CatVod/JS 源可用；
-> 要 jar 源，先跑 `bash scripts/setup.sh`，或单独执行
-> `bash scripts/install-android-runtime.sh` 并提供/构建 Bridge APK。
-
-### 解除隔离（仅下载的包需要）
-
-`setup.sh` / `swift build` 在本机生成的 `.app` **没有 quarantine 属性，不需要执行 `xattr`**，直接打开即可
-（`setup.sh --run` 也会自动处理）。
-
-只有从网上下载的 zip（GitHub Release、别人发的）解压后才需要：
-
-```bash
-xattr -d com.apple.quarantine TVBoxMac.app
-open TVBoxMac.app
-```
+产物是 `TVBoxMac.app` 和 `dist/TVBoxMac.app.zip`。本机构建的直接 `open TVBoxMac.app` 即可（没有 quarantine）；
+只有从网上下载的 zip 才需要 `xattr -d com.apple.quarantine TVBoxMac.app`。
 
 ## 目录结构
 
