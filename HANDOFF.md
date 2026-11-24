@@ -1,218 +1,151 @@
-# TVBoxMac 交接文档
+# TVBoxMac 交接文档（当前状态）
 
-> 交接时间：2026-09-20 ｜ 仓库：`jiangchen516/tvbox-mac`（private）｜ 版本：**0.2.0**（tag `v0.2.0`）
-> 开发方式变更：从「Linux 服务器写码 + GitHub Actions CI 出包」转为 **Mac 本地开发**。
-> 当前工作分支：`feature/managed-android-runtime`（托管安卓运行时，详见 `docs/managed-android-runtime.md`）。
+> 更新时间：2026-11-24 ｜ 分支：`main` ｜ 版本：0.2.1 ｜ 测试：81/81
+> 仓库已公开：https://github.com/jiangchen516/tvbox-mac
+> 本文件是给“新会话/新接手者”的入口；依赖细节以 `README.md` 为准。
 
 ---
 
-## 1. 当前状态（2026-09-20）
+## 1. 一句话现状
 
-核心链路全部打通：配置导入 → 站点浏览/搜索/详情/选集 → 播放（AVPlayer 原生控制条）。
-新增两大能力：
+macOS 原生 TVBox 已可用：豆瓣推荐首页、配置导入、CatVod/JS/托管 Android Dex（jar）源、
+浏览/搜索/详情/选集、AVPlayer 播放（断点续播、全屏 Space、置顶、暂停提示、断流重连）、
+观看历史。`feature/managed-android-runtime` 已合并进 `main`。
 
-1. **IDN 中文域名修复**（已合入 main）：纯 Swift Punycode（RFC 3492，`Punycode.swift`）
-   兜底 + ICU 优先，Python stdlib 对拍 22/22，真机实测通过。
-2. **托管安卓运行时**（本分支，`docs/managed-android-runtime.md`）：`type=3`/`csp_` jar 源
-   通过内部管理的 headless 模拟器 + DexBridge APK 跑通——**端到端实测验证**
-   （模拟器 boot → Bridge health → 真实 jar 下载 → DexClassLoader → spider init → categories JSON）。
+最近提交（新→旧）：
 
-| 项 | 状态 |
+```text
+0688c17 docs: remove third-party source URLs
+e659be1 docs: clarify manual build and quarantine behavior
+24ca275 feat(setup): default to full runtime install including bridge
+7a662f0 feat(setup): install android runtime deps on demand
+e5e07c5 docs: rewrite README with dependencies and public-repo notes
+8ebf398 merge: feature/managed-android-runtime into main
+6cfb9dd feat(player): pin playback window on top
+7255e0e fix(play): support bilibili DASH spiders via mp4 fallback
+027e271 fix(player): show paused badge only after user pauses
+0c471b5 perf(search): parallelize and filter off-topic results
+51775c1 feat(player): show paused indicator over the video
+```
+
+---
+
+## 2. 构建与验证
+
+```bash
+bash scripts/setup.sh            # 默认：装齐 SDK/AVD/Bridge + 构建 + 打包
+bash scripts/setup.sh --test     # 额外跑 81 个单测
+bash scripts/setup.sh --run      # 构建后直接运行
+bash scripts/setup.sh --no-android  # 不用 jar 源时，只构建 App
+```
+
+本机环境（已验证）：
+
+- 完整 Xcode 27（只装 CLT 时 SwiftUI 应用层编不过、`swift test` 跑不了）；
+  非默认路径：`export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`
+- 无第三方 Swift 包；全部系统框架（SwiftUI/AVKit/AVFoundation/JavaScriptCore/AppKit/CryptoKit）
+- 本机已具备 Android 运行时：SDK `~/Library/Android/sdk`、AVD `TVBoxMac_Runtime`
+  （`~/Library/Application Support/TVBoxMac/managed-android-runtime/avd`）、
+  Bridge `.build/AndroidDexBridge-release.apk`
+
+验证命令：
+
+```bash
+swift build -c release
+swift test                                   # 81 tests
+bash scripts/make-app-bundle.sh              # TVBoxMac.app + dist/TVBoxMac.app.zip
+```
+
+---
+
+## 3. 架构与关键文件
+
+```text
+TVBoxMac/App/                 AppState（导航/配置/运行时）、TVBoxMacApp（窗口/播放窗口）
+TVBoxMac/UI/
+  Discover/DiscoverView      豆瓣首页
+  Home/HomeView              侧栏：搜索、推荐首页、观看历史、站点列表
+  Browse/BrowseView          分类/搜索/分页/海报
+  Detail/DetailView          详情 + 线路/选集
+  Player/PlayerView          AVPlayer + 自定义控制条/全屏/置顶/暂停提示
+  History/HistoryView        历史列表 + 单条删除 + 信息页
+  Search/SearchAllView       全站搜索页
+  Search/AllSitesSearchSheet 首页海报点开后的全站搜索弹层
+  Common/RemoteImage         海报（@Referer/@User-Agent、dnsPic 代理解包、NSCache）
+TVBoxMacCore/
+  Douban/DoubanClient        豆瓣集合（缺字段宽容解码、cover 支持）
+  Spider/ManagedAndroidSpiderClient   Bridge 调用、搜索重载回退、B 站 DASH→mp4
+  Spider/ManagedAndroidRuntimeController  模拟器/Bridge/专用 ADB(5038)
+  Player/PlayerController    AVPlayer、断点、停滞重连、睡眠恢复
+  Config / CatVod / Parser / AdFilter / History  协议层
+scripts/
+  setup.sh                   一键安装+构建（默认含 Android 运行时）
+  install-android-runtime.sh SDK 组件 + AVD（+ 可选 Bridge）
+  build-android-bridge.sh    从 OKVideoMac（GPL）构建 Bridge APK
+  make-app-bundle.sh         打 .app/zip（ad-hoc 签名）
+docs/managed-android-runtime.md  模拟器方案与踩坑记录
+```
+
+---
+
+## 4. 已实现，不要重复做
+
+- 启动默认进「推荐首页」，不再恢复上次站点；侧栏有「推荐首页/观看历史」入口与高亮。
+- 首页豆瓣五排：正在热映（`cover.url`）、热门剧集、综艺、动漫、Top250；点海报全站搜索。
+- 全站搜索：只搜 `searchable=1`、并发 6、单站 12s、流式追加、按标题相关性过滤（过滤荐影等无关源）。
+- Spider 搜索兼容：三参/两参 × quick 四种重载依次尝试；空结果按“没搜到”显示。
+- 播放器：
+  - 单击视频画面暂停/播放（激活点击、标题栏、控制条不触发）；
+  - 暂停时显示 ⏸ 已暂停（仅用户暂停后）；
+  - 双击全屏、Esc 退出、原生全屏 Space；图钉置顶；
+  - 暂停恢复不误重连；播放停滞 10s 自动重取流并续播（≤3 次）；
+  - Mac 睡眠唤醒后重取流并定位，但保持暂停，绝不自动播放。
+- B 站 DASH（哔哔合集）：识别 `application/dash+xml` + 数组 url，改用
+  `api.bilibili.com/x/player/playurl?avid=&cid=&fnval=1` 取 mp4；播放时注入
+  B 站 UA + Referer。匿名上限 360P。
+- 模拟器 DNS 失效：连续 3 次网络类错误自动重启运行时；设置页有手动「重启 Android 运行时」。
+- 运行时退出清理：终止模拟器 + 关闭专用 ADB server（不影响 5037）。
+- 启动时后台刷新已启用的远程配置一次，失败保留缓存。
+- 观看历史：点击记录打开信息页，播放按钮直接续播；支持单条删除/清空；旧记录可补图。
+- 文档已删除所有具体第三方源地址。
+
+---
+
+## 5. 已知问题 / 限制（下一步候选）
+
+1. **部分源搜索/详情仍为空**（源自身问题，非 App 崩溃）：
+   - 糯米：四种搜索重载都返回空，浏览正常；
+   - 玩偶哥哥、厂长：jar 类/站点接口与当前配置不匹配；
+   - 这类源应在 UI 给出“源不可用”提示而不是误导为 jar 缺失。
+2. **B 站只有 360P**：未接入 Cookie；高画质需要登录态与 WBI 签名。
+3. **DASH 通用性**：目前只对 B 站做了 mp4 回退；其他 DASH 源仍会提示不支持。
+4. **托管运行时冷启动慢**：首次 jar 源要等模拟器/Bridge；设置里可开「启动时预热」。
+5. **未做**：直播 IPTV、小程序框架、网盘/登录类源、正式签名与 Release 分发。
+6. **版本号仍是 0.2.1**：合入大量功能后可考虑 bump 到 0.3.0 并打 tag。
+
+---
+
+## 6. 协作约定（重要）
+
+- 每次改完必须：`swift build -c release` + `swift test`，再 `make-app-bundle.sh`；提交信息用
+  `fix(...)` / `feat(...)` / `docs(...)`。
+- 提交到 `main`（已合并）；如需大改可开短分支。
+- 日志：`~/Library/Application Support/TVBoxMac/player.log`（UTC 时间戳，注意 +1 小时换算）。
+- 模拟器/ADB：ADB 专用端口 5038；Bridge 19978/19979；console 5556。
+- 本机小模型（新会话可用）：
+  `subagent(provider: "omlx", model: "Inkling-2-Mini-oQ4e-mtp", ...)`
+  只给它单文件、机械性改动；必须由主代理 review diff、编译、测试后再提交。
+  omlx 的“允许模型”策略在会话创建时固化，旧会话里不可用。
+- 不要把具体影视源地址写进 README/文档；仓库不内置任何源。
+
+---
+
+## 7. 快速排障
+
+| 现象 | 先看 |
 |---|---|
-| 本机构建 + 测试 | ✅ **66/66 全绿**（Xcode 27.0 + `DEVELOPER_DIR` 用法见 §2） |
-| 版本 | ✅ 0.2.0（`make-app-bundle.sh` Info.plist，tag `v0.2.0`） |
-| 托管安卓运行时 | ✅ 端到端实测通过；待做：启动进度提示 |
-| type=1 源可用性 | ⚠️ 实测 44 个源仅 8 个能播（工具：`scripts/check-sources.py`） |
-| jar 类名不匹配 | ⚠️ 游魂镜像配置的 qiniu jar 缺 DouDouGuard 等类（见 `docs/managed-android-runtime.md`） |
-| 分段 CDN 抖动 | ⚠️ 灰产 CDN 时好时坏（已实证），app 只能超时提示+换线路 |
-
-**注意**：本机实测发现（2026-09-17/20，Mac，macOS 26.6.2 + CLT Swift 6.4）：
-1. `applyingTransform("IDNA")` **本机也返回 nil**（不只 CI runner）——这就是走纯 Swift
-   Punycode 兜底的原因（HANDOFF §4.1 方案 b）。
-2. 本机 CLT **不带 XCTest**（只带 Swift Testing 的 `Testing.framework`）→ `swift test`
-   本机跑不了；**也不带 `SwiftUIMacros` 插件** → SwiftUI 应用层本机编不了
-   （核心库 `swift build --target TVBoxMacCore` 不受影响）。
-   **✅ 已解决（2026-09-17）**：装完整版 Xcode 27.0（App Store）+ `sudo xcodebuild
-   -license accept` 后，用 `export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`
-   （不用 sudo 切 xcode-select）即可本机全量构建 + 测试。注意：Xcode 的 swift 在
-   `Toolchains/XcodeDefault.xctoolchain/usr/bin/swift`（`Developer/usr/bin/swift`
-   可能不存在），跑命令时直接用 xcodebuild/swift 或 DEVELOPER_DIR。
-3. **jar 型 Spider 是 TVBox 生态主流形态**（用户实配 1625 个 type3 vs 44 个 type1）：
-   `csp_Xxx` 的 api 是**类名不是 URL**。本分支的托管安卓运行时已让这类源在 Mac 上跑通
-   （见 `docs/managed-android-runtime.md`）；同时发现镜像配置存在 **jar 与 api 类名不匹配**
-   的问题（qiniu jar 缺 DouDouGuard 等类，原版 fty.json 用的是 `./jar/fan.txt`）。
-4. **多份 app 副本会混淆**：`~/Downloads/Telegram Desktop/TVBoxMac.app` 等旧副本曾导致
-   「修复不生效」的假象。`PlayerLog` 首行记录二进制路径+构建时间，日志一眼可辨版本。
-
-## 2. Mac 本地开发环境
-
-### 2.1 需要的东西
-| 组件 | 要求 | 说明 |
-|---|---|---|
-| macOS | **13 Ventura 及以上** | `Package.swift` 声明 `platforms: [.macOS(.v13)]` |
-| Xcode Command Line Tools | Swift ≥ 5.9（装最新 Xcode 即可，自带） | `xcode-select --install` |
-| git | 任意新版 | clone 用 |
-| 网络 | 可访问 github.com + 各配置源站点 | 测试需要 |
-
-**不需要**：SwiftPM 依赖全是系统框架（SwiftUI/AVFoundation/JavaScriptCore），
-没有第三方包；没有 Podfile/Cartfile。`.build/` 产物本地生成。
-
-### 2.2 搭建步骤
-```bash
-git clone https://github.com/jiangchen516/tvbox-mac.git
-cd tvbox-mac
-bash scripts/setup.sh            # 环境自检 + 编译 + 打 .app（一键）
-bash scripts/setup.sh --test     # 加跑单测（期望 50 用例；IDNATests 若失败 → §4.1）
-swift run TVBoxMac               # 或直接跑
-```
-
-### 2.3 本地构建排错
-- `swift run` 报模块找不到 → 删 `.build/` 重来（`rm -rf .build`）
-- App 打不开（Gatekeeper）→ `xattr -d com.apple.quarantine TVBoxMac.app`
-- 播放器黑屏/失败 → 先看 Console.app 里 AVPlayer 日志，多为源站 m3u8
-  需要特殊 UA/header（配置里 `header` 字段可覆盖）
-
-## 3. 已完成工作清单
-
-### 3.1 架构（全部完成）
-- `TVBoxMacCore` 纯逻辑库：Models（宽容 JSON 解码）/ Config（单配置 +
-  聚合列表 + 裸站点数组三格式）/ Networking（`HTTPFetching` 协议可 mock）/
-  CatVod / Parser（type0 模板 + type1 JSON + `cat_ext` base64url）/
-  AdFilter / Spider（JavaScriptCore 桥，复刻 TVBox spider API 面）/
-  Player（AVFoundation 封装：续播/倍速/多播放组）/ History
-- `TVBoxMac` SwiftUI 应用：Home / Browse / Detail / Player / Settings
-- 跨平台：`#if canImport` 隔离，Linux 可编译核心库 + 跑测试（预检用）
-
-### 3.2 已修复（按轮次）
-1. Linux 编译：XCTAssert autoclosure、Combine stub、FoundationNetworking（44→50 测试绿）
-2. macOS CI 首编：CoreMedia import、`CMTimeIsValid`（改 `.isFinite`）、
-   `AVURLAssetHTTPHeaderFieldsKey`（字符串字面量）、JSContext 桥接 API
-3. **JSC overlay 裁剪**：`JSValue` 下标/`isFunction`/`objectForProperty`
-   全缺失 → 入口调用整体挪进 `evaluateScript` 执行，参数走 `@objc` 属性透传
-4. Artifact 结构：`upload-artifact` 传目录会剥掉 `.app` 外壳 →
-   `make-app-bundle.sh` 用 `ditto --keepParent` 出 `TVBoxMac.app.zip` 单文件
-5. 设置窗口被列表撑爆 → 固定 560×620 + `ScrollView`
-6. 单仓源（裸站点数组 `[...]`）解析 → `parseConfig` 按首字节分流
-7. 响应带 UTF-8 BOM → `parseConfig` 剥离 BOM
-8. 「配置不是合法JSON」报错 → 现在分三类说人话（HTML 反爬页/空响应/
-   结构不符）+ 带响应开头 80 字符
-9. 设置页加「全部启用 / 全部禁用」按钮（`AppState.setAllConfigsEnabled`）
-
-### 3.3 参考材料（仓库内）
-- `PLAN.md` — 功能清单 + 里程碑（M1 已基本完成）
-- `references/tvbox-android-ref/` — 安卓参考源码（**.gitignore 不入库**，
-  服务器上有；如需在 Mac 上用，从服务器拷或从原 fork 重新下载）
-- `docs/punycode-reference.js` — RFC 3492 权威参考实现（bestiejs/punycode.js
-  v2.3.1），修 IDNA 时对照用，标准答案用 `python3 -c "print('饭太硬'.encode('punycode'))"` 对拍
-
-## 4. 遗留问题（按优先级）
-
-### 4.1 P0：IDN 中文域名站点请求失败 ✅ 代码已修复（方案 b）
-- **现象**：导入含中文域名站点的聚合配置后，点这些站点
-  （聚合源里占多数）→「加载失败：网络错误：不支持的URL」
-- **根因**（已定位）：`URL(string:)` 能构造非 ASCII host，但 **URLSession
-  拒绝发送**，报 `URLError` "unsupported URL"。中文域名必须先转 Punycode
-  （中文域名 → Punycode）
-- **已做（方案 b，2026-09-17）**：
-  1. 实测确认：`applyingTransform("IDNA")` **本机也返回 nil**（不只 CI runner），
-     方案 a 不成立。
-  2. 新增 `Punycode.swift`：纯 Swift RFC 3492 编码（忠实移植
-     `docs/punycode-reference.js`），含 `toASCII`（域名级，RFC 3490 分隔符
-     `'。''．''｡'` 归一）与 `encode`（label 级）。
-  3. `IDNA.idnHost` 改为「**ICU 优先，失败走手写**」；手写实现跨平台一致，
-     Linux passthrough 去掉。
-  4. `IDNATests` 去掉平台门控，两平台都断言真 punycode + 标准向量
-     （这同时修掉 CI 红的 4 个 IDNATests）。
-  5. 验证：与 Python stdlib 标准答案对拍 **22/22**（含连字符 label、
-     多 label、分隔符、urlString/url 各入口）；核心库 release 编译通过。
-- **下一步**：push → macOS CI 全绿 → 装完整版 Xcode 后本机出包实测
-  （导入含中文域名站点的配置 → 能出分类/列表即通）
-
-### 4.2 P1：单仓源导入失败「配置不是合法JSON」
-- **现象**：导入某个配置地址报 `配置不是合法JSON`
-- **排查到的**：服务器（欧洲 IP）curl 该地址各种姿势都返回 **360 反爬导航页**
-  （15KB HTML），拿不到真 JSON。你 Mac 上大概率能拿到真数据，所以
-  HEAD 里已把报错改成带**响应开头 80 字符**——用 HEAD 构建的包再导一次，
-  把红色报错原文发出来即可定位（HTML=反爬拦截要换 UA/换入口；
-  真 JSON 但结构不符=补解析分支）
-- 顺带注意：该站正确入口可能需要 https
-  或 `/api.php/provide/vod` 形式，可在浏览器里先打开确认返回的是 JSON
-
-### 4.3 P2：UI 细节待实测
-- 「全部启用/全部禁用」按钮：已实现未实测（逻辑 = 遍历 `setEnabled` 后
-  `bootstrap`，模式与单条启用一致）
-- 播放页/详情页细节交互尚未过真实源完整流程
-
-### 4.4 明确未做（见 PLAN.md L2/L3）
-直播 IPTV、小程序框架、跨站聚合搜索、下载/缓存、登录类源
-
-### 4.5 jar 型 Spider（csp_ 源）macOS 无法运行 ✅ 已改为明确报错
-- **现象**（用户实测，commit `5981fb6` 的包）：点 csp_ 站点 →
-  「网络错误：不支持的URL [请求: csp_DouDouGuard?ac=detail&pg=1]」
-- **根因**：`csp_Xxx` 的 api 是 **spider 类名不是 URL**（TVBox 约定），旧代码把
-  type!=0 全走 CatVod 路径，拿类名拼 query 发请求
-- **生态现状**（用户实配统计）：1625 个 type3（jar spider）vs 44 个 type1（CatVod）；
-  4 个配置级 jar 实测全含 `classes.dex`（安卓实现）→ **macOS 没有安卓运行时，无法支持**
-- **已修（2026-09-17）**：
-  1. 路由：csp_ 前缀 / type 0/3 → Spider 路径（`Site.isSpiderSite`，TVBoxClient 分发）
-  2. `Site` 新增 `jar` 字段；`TVBoxClient.configure` 把配置级 `spider` 传给 SpiderClient
-  3. SpiderClient：候选 site.spider → site.jar → 配置级 spider → site.api（剥 `;md5;`）；
-     jar 魔数识别（PK/dex）→ `SpiderError.unsupportedJar` 说人话报错；.js 型照旧加载
-  4. HomeView 站点图标区分 spider 型（orange 蚂蚁图标）
-- **后续可做**：站点列表给 jar 型加"不支持"角标/过滤器；drpy2/py 型源单独评估
-
-## 5. 关键坑（踩过的，别再踩）
-
-### macOS CI（macos-14 runner, Swift 5.10）工具链裁剪
-1. **JSC overlay 缺失**：`JSValue[name]` / `.isFunction` /
-   `.objectForProperty` / `.isProperty` 全没有。解法：JS 入口调用走
-   `context.evaluateScript("...")` 字符串执行，Swift→JS 参数用 `@objc`
-   属性透传（`SpiderBridge`）。
-2. **C 符号缺失**：`CMTimeIsValid`、`AVURLAssetHTTPHeaderFieldsKey` 未导出。
-   替代：`CMTime` 用 `.isFinite`；header key 用字符串字面量。
-3. **StringTransform**：无 `.idnaConvert` 成员；`StringTransform(rawValue:)`
-   是**单参、非可选** init；`kCFStringIDNAConvertTransform` 常量未导出。
-   且即使构造成功，runner 上 IDNA 变换运行时返回 nil。
-4. **upload-artifact 剥目录**：`path:` 指目录时只传其**内容**。要保留
-   顶层 `.app/` 外壳必须传单文件（zip/dmg，`ditto --keepParent`）。
-5. **拉 CI 日志**：`/actions/jobs/{id}/logs` 端点返回 **302**，curl 必须
-   `-L`；annotations 端点 403（PAT 无 checks 权限），别用。
-
-### 跨平台（Linux 预检 vs macOS 实机）
-6. **URL(string:) 对非 ASCII host**：Linux 直接返回 nil；macOS 能构造但
-   发请求被拒。涉及 IDN 的测试必须 `#if` 平台门控。
-7. Linux 无 `CFStringTransform` / `JSContext` → `#if canImport` 兜底 stub。
-8. `HTTPURLResponse` Linux 不可构造 → 自封 `HTTPResponse` 结构体 +
-   `HTTPFetching` 协议（测试全 mock）。
-
-### 配置格式
-9. TVBox 单文件源有**三种**顶层形态：完整对象 `{...}`、裸站点数组 `[...]`、
-   带 BOM 的任意一种。`ConfigLoader.parseConfig` 按「剥离 BOM 后首字节」分流。
-10. 聚合列表 = `{"urls":[{"name","url"}...]}`，导入时逐条展开。
-
-## 6. 工作流约定（延续）
-- 用户风格：**直接执行优先**，别啰嗦分析；「然后呢？」= 立即行动；
-  查代码→基于代码回答；不越界，重要操作先确认；README/文档保持简洁
-- 评审/写作：物理表述优先、最小改动、不防御
-- 临时验证脚本用 `/tmp/hermes-verify-` 前缀，验完清理
-- 本地验证节奏：改 `TVBoxMacCore` → Linux `swift test`（服务器）→
-  push → macOS CI/本地 → 实测。Mac 本地后核心库可跳过 Linux 直接本机测
-- **永远不要** 把 PAT/token 提交进仓库（`.env` 已在 .gitignore；
-  git remote URL 里嵌了 PAT，Mac 上 clone 后建议 `git remote set-url`
-  换成自己的凭据）
-- 服务器 Swift 工具链：`~/swift-toolchain/swift-5.10.1-RELEASE-ubuntu22.04/`
-  （仅 Linux 预检用，Mac 上不需要）
-
-## 7. 快速命令速查
-```bash
-bash scripts/setup.sh           # 一键：环境自检 + 编译 + 打 .app（--test 加跑单测，--run 直接跑）
-swift build -c release          # 编译（含 SwiftUI 应用；本机 CLT 缺 SwiftUIMacros 会挂 → 见 §1 注意）
-swift build --target TVBoxMacCore -c release   # 只编核心库（本机可用）
-swift test                      # 50 个单测（mock，不联网；本机 CLT 缺 XCTest 跑不了 → CI 跑）
-swift run TVBoxMac              # 直接跑应用
-bash scripts/make-app-bundle.sh # 出 TVBoxMac.app + dist/TVBoxMac.app.zip
-xattr -d com.apple.quarantine TVBoxMac.app   # 首次运行解除隔离
-
-# IDNA 标准答案对拍（修 punycode 时）
-python3 -c "print('饭太硬'.encode('punycode'))"   # sss604efuw
-```
+| 所有 jar 源同时打不开 | 模拟器 DNS 失效：设置里重启运行时；或运行 `install-android-runtime.sh` 检查组件 |
+| 某个源空数据/详情空 | 该源 jar/类/接口失效，换源；看日志 `Bridge←` 行 |
+| 搜索结果少 | 该源搜索重载/超时；看 `🔎 搜索…`、`✅ 命中`、`⏭ 过滤` 日志 |
+| 播放黑屏 | 换线路；看 `▶ play`、`item.status`、`accessLog` |
+| 广告/失效配置 | 重新导入配置；启动刷新失败会保留旧缓存 |
