@@ -1,6 +1,6 @@
 # TVBoxMac 交接文档（当前状态）
 
-> 更新时间：2026-11-24 ｜ 分支：`main` ｜ 版本：0.2.1 ｜ 测试：102/102
+> 更新时间：2026-11-24 ｜ 分支：`main` ｜ 版本：0.2.1 ｜ 测试：104/104
 > 仓库已公开：https://github.com/jiangchen516/tvbox-mac
 > 本文件是给“新会话/新接手者”的入口；依赖细节以 `README.md` 为准。
 
@@ -36,7 +36,7 @@ e5e07c5 docs: rewrite README with dependencies and public-repo notes
 
 ```bash
 bash scripts/setup.sh            # 默认：装齐 SDK/AVD/Bridge + 构建 + 打包
-bash scripts/setup.sh --test     # 额外跑 102 个单测
+bash scripts/setup.sh --test     # 额外跑 104 个单测
 bash scripts/setup.sh --run      # 构建后直接运行
 bash scripts/setup.sh --no-android  # 不用 jar 源时，只构建 App
 ```
@@ -54,7 +54,7 @@ bash scripts/setup.sh --no-android  # 不用 jar 源时，只构建 App
 
 ```bash
 swift build -c release
-swift test                                   # 102 tests
+swift test                                   # 104 tests
 bash scripts/make-app-bundle.sh              # TVBoxMac.app + dist/TVBoxMac.app.zip
 ```
 
@@ -113,7 +113,7 @@ docs/managed-android-runtime.md  模拟器方案与踩坑记录
 - 运行时退出清理：终止模拟器 + 关闭专用 ADB server（不影响 5037）。
 - 启动时后台刷新已启用的远程配置一次，失败保留缓存。
 - 观看历史：点击记录打开信息页，播放按钮直接续播；支持单条删除/清空；旧记录可补图。
-- 电视直播：配置 `lives` → 在线 m3u/txt 频道列表；支持 `,#genre#` 分组、`#` 多线路合并、
+- 电视直播：配置 `lives` → 在线 m3u/txt 频道列表或内联 `channels` 数组；支持 `,#genre#` 分组、`#` 多线路合并、
   UTF-8/GB18030/base64 容错、频道搜索、上一台/下一台、线路失败自动回退、全屏/置顶；
   `LiveClient` 5 分钟缓存 + 手动刷新；无 URL / 非 http(s) 的条目会提示不支持。
 - 文档已删除所有具体第三方源地址。
@@ -129,7 +129,7 @@ docs/managed-android-runtime.md  模拟器方案与踩坑记录
 2. **B 站只有 360P**：未接入 Cookie；高画质需要登录态与 WBI 签名。
 3. **DASH 通用性**：目前只对 B 站做了 mp4 回退；其他 DASH 源仍会提示不支持。
 4. **托管运行时冷启动慢**：首次 jar 源要等模拟器/Bridge；设置里可开「启动时预热」。
-5. **直播限制**：只支持 `lives` 指向的在线 m3u/txt 频道列表；spider 动态直播、EPG 节目单、
+5. **直播限制**：只支持 `lives` 的在线 m3u/txt 列表或内联 `channels`；spider 动态直播、EPG 节目单、
    回看与频道台标未做；非 http(s) 地址（如 `proxy://`）只提示不支持。
 6. **未做**：小程序框架、网盘/登录类源、正式签名与 Release 分发。
 7. **版本号仍是 0.2.1**：合入大量功能后可考虑 bump 到 0.3.0 并打 tag。

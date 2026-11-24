@@ -154,7 +154,8 @@ final class AppState: ObservableObject {
                 let source = LiveSource.make(from: raw,
                                              configURL: entry.loaded.url,
                                              index: index)
-                let key = "\(source.name)|\(source.url)"
+                // 同 id 的直播源在不同配置里各自保留（内联源 url 为空，名称可能重复）
+                let key = "\(entry.loaded.url)#\(source.id)"
                 if seen.insert(key).inserted {
                     result.append(source)
                 }

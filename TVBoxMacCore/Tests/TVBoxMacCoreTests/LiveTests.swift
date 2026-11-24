@@ -12,6 +12,12 @@ private struct MockLiveHTTP: HTTPFetching {
     }
 }
 
+private struct FailingLiveHTTP: HTTPFetching {
+    func get(_ url: URL, headers: [String: String]?) async throws -> (data: Data, response: HTTPResponse) {
+        throw URLError(.notConnectedToInternet)
+    }
+}
+
 private actor CountingLiveHTTP: HTTPFetching {
     let data: Data
     private var calls = 0
@@ -183,6 +189,34 @@ final class LiveTests: XCTestCase {
         XCTAssertEqual(source.url, "https://example.com/config/live/list.txt")
     }
 
+    func testLiveSourceInlineChannels() {
+        let raw = JSONValue.object([
+            "group": .string("自定义"),
+            "channels": .array([
+                .object([
+                    "name": .string("频道A"),
+                    "urls": .array([.string("http://example.com/a.m3u8"),
+                                    .string("http://example.com/b.m3u8")])
+                ]),
+                .object([
+                    "name": .string("频道B"),
+                    "url": .string("http://example.com/c.m3u8")
+                ]),
+                .object(["name": .string("无地址")])
+            ])
+        ])
+        let source = LiveSource.make(from: raw, configURL: nil, index: 0)
+        XCTAssertTrue(source.hasInlineChannels)
+        XCTAssertFalse(source.isHTTPPlaylist)
+        XCTAssertNil(source.unsupportedReason)
+        // 没有 urls 的频道被跳过
+        XCTAssertEqual(source.inlineChannels.map(\.name), ["频道A", "频道B"])
+        XCTAssertEqual(source.inlineChannels[0].group, "自定义")
+        XCTAssertEqual(source.inlineChannels[0].urls,
+                       ["http://example.com/a.m3u8", "http://example.com/b.m3u8"])
+        XCTAssertEqual(source.inlineChannels[1].urls, ["http://example.com/c.m3u8"])
+    }
+
     func testLiveSourceWithoutURLIsUnsupportedButKept() {
         let source = LiveSource.make(from: .object(["name": .string("Spider 直播"),
                                                     "api": .string("csp_live")]),
@@ -240,6 +274,19 @@ final class LiveTests: XCTestCase {
         _ = try await client.load(makeSource(), forceReload: true)
         let calls = await http.callCount()
         XCTAssertEqual(calls, 2)
+    }
+
+    func testClientReturnsInlineChannelsWithoutNetwork() async throws {
+        let client = LiveClient(http: FailingLiveHTTP())
+        let source = LiveSource(name: "内联", url: "", inlineChannels: [
+            LiveChannel(name: "A", group: "组1", urls: ["http://example.com/a.m3u8"]),
+            LiveChannel(name: "B", group: "组1", urls: ["http://example.com/b.m3u8"]),
+            LiveChannel(name: "C", group: "组2", urls: ["http://example.com/c.m3u8"])
+        ])
+        let genres = try await client.load(source)
+        XCTAssertEqual(genres.map(\.name), ["组1", "组2"])
+        XCTAssertEqual(genres[0].channels.count, 2)
+        XCTAssertEqual(genres[1].channels.first?.name, "C")
     }
 
     func testClientThrowsNoChannelsForNonPlaylist() async {

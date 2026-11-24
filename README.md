@@ -16,7 +16,7 @@ TVBox 的 macOS 原生移植（Swift + SwiftUI + AVFoundation + JavaScriptCore�
 | 浏览 | 分类 Tab、分页、下拉刷新、海报缓存 |
 | 详情 | 简介、演员、剧集列表、线路切换、收藏 |
 | 播放 | AVPlayer（HLS/MP4）、断点续播、倍速、原生全屏 Space、Esc 退出全屏、窗口置顶、单击画面暂停/播放、暂停提示 |
-| 直播 | 配置 `lives` 里的在线 m3u/txt 频道列表；分组/搜索选台、多线路失败自动回退、上一台/下一台、全屏/置顶 |
+| 直播 | 配置 `lives` 里的在线 m3u/txt 频道列表或内联频道；分组/搜索选台、多线路失败自动回退、上一台/下一台、全屏/置顶 |
 | 容错 | 播放停滞自动重连（限 3 次，保持播放意图）、Mac 睡眠唤醒后重取流并保持暂停、模拟器内部 DNS 失效自动重启运行时 |
 | 搜索 | 单站搜索 + 全站聚合搜索（并发 6、结果流式、按标题相关性过滤）、历史恢复 |
 | 历史 | 侧栏「观看历史」；点击记录打开信息页，播放按钮直接续播；单条删除/清空 |
@@ -88,13 +88,13 @@ git clone https://github.com/jiangchen516/tvbox-mac.git
 cd tvbox-mac
 
 bash scripts/setup.sh              # 默认：装齐 SDK/AVD/Bridge + 构建 + 打包
-bash scripts/setup.sh --test       # 同上并跑单测（102 个，全 mock、不联网）
+bash scripts/setup.sh --test       # 同上并跑单测（104 个，全 mock、不联网）
 bash scripts/setup.sh --run        # 同上并直接运行
 bash scripts/setup.sh --no-android # 只构建 App（CatVod/JS 可用，jar 源不可用）
 
 # 或手动（只编译/打包，不会安装 Android SDK、模拟器、AVD 或 Bridge）：
 swift build -c release
-swift test                         # 102 tests
+swift test                         # 104 tests
 bash scripts/make-app-bundle.sh    # TVBoxMac.app + dist/TVBoxMac.app.zip（ad-hoc 签名）
 ```
 
@@ -151,7 +151,7 @@ docs/                     设计与实测记录（含 managed-android-runtime.md
 - 哔哔合集等 B 站源为 DASH，AVPlayer 不支持；已回退到 B 站 mp4（匿名 360P）。
 - 未做正式签名，分发/他人运行需自行解除 quarantine。
 - 小程序框架、网盘登录类源未实现（见 `PLAN.md`）。
-- 直播只支持配置 `lives` 指向的**在线 m3u/txt 频道列表**；spider 动态生成的直播源、EPG 节目单与回看未实现，
+- 直播只支持配置 `lives` 里的**在线 m3u/txt 频道列表或内联频道数组**；spider 动态生成的直播源、EPG 节目单与回看未实现，
   非 http(s) 的地址（如 `proxy://`）会在界面明确提示不支持。
 
 ## 第三方与许可证

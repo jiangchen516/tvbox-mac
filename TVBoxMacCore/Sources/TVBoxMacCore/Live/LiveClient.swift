@@ -23,6 +23,12 @@ public actor LiveClient {
 
     /// 拉取并解析频道列表。命中缓存时不再请求网络（forceReload 强制刷新）。
     public func load(_ source: LiveSource, forceReload: Bool = false) async throws -> [LiveGenre] {
+        // 配置里内联的频道列表：不需要网络，直接按分组返回
+        if source.hasInlineChannels {
+            let genres = LiveParser.group(source.inlineChannels)
+            guard !genres.isEmpty else { throw LiveError.noChannels(source.name) }
+            return genres
+        }
         guard source.isHTTPPlaylist, let url = URL(string: source.url) else {
             throw LiveError.unsupportedSource(source.name)
         }

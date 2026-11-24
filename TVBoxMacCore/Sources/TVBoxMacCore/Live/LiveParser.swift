@@ -16,6 +16,13 @@ import Foundation
 import CoreFoundation
 
 public enum LiveParser {
+    /// 把已解析的频道按分组整理（内联频道 / 单测用）
+    public static func group(_ channels: [LiveChannel]) -> [LiveGenre] {
+        var builder = GenreBuilder()
+        for channel in channels { builder.add(channel) }
+        return builder.result
+    }
+
     /// 自动识别 txt / m3u 并解析；空文本返回 []
     public static func parse(_ text: String) -> [LiveGenre] {
         let normalized = normalizeNewlines(text)

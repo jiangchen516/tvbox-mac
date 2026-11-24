@@ -18,12 +18,15 @@ public struct LiveSource: Codable, Sendable, Identifiable, Hashable {
     public var playerType: String?
     public var type: Int
     public var ext: JSONValue?
+    /// 内联频道（FongMi 风格）：{"group":"…","channels":[{"name":"…","urls":["…"]}]}
+    public var inlineChannels: [LiveChannel]
 
-    public var id: String { "\(name)|\(url)|\(group ?? "")" }
+    public var id: String { "\(name)|\(url)|\(group ?? "")|\(inlineChannels.count)" }
 
     public init(name: String, url: String, group: String? = nil, ua: String? = nil,
                 header: String? = nil, epg: String? = nil, logo: String? = nil,
-                playerType: String? = nil, type: Int = 0, ext: JSONValue? = nil) {
+                playerType: String? = nil, type: Int = 0, ext: JSONValue? = nil,
+                inlineChannels: [LiveChannel] = []) {
         self.name = name
         self.url = url
         self.group = group
@@ -34,7 +37,10 @@ public struct LiveSource: Codable, Sendable, Identifiable, Hashable {
         self.playerType = playerType
         self.type = type
         self.ext = ext
+        self.inlineChannels = inlineChannels
     }
+
+    public var hasInlineChannels: Bool { !inlineChannels.isEmpty }
 
     /// 是否是可抓取的在线播放列表（当前唯一支持的类型）
     public var isHTTPPlaylist: Bool {
@@ -44,7 +50,7 @@ public struct LiveSource: Codable, Sendable, Identifiable, Hashable {
 
     /// 不能在当前版本播放时的原因（UI 直接展示）
     public var unsupportedReason: String? {
-        if isHTTPPlaylist { return nil }
+        if isHTTPPlaylist || hasInlineChannels { return nil }
         if url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return "这个直播源没有 URL，可能需要 Spider 类直播实现；当前版本还不支持"
         }
@@ -75,23 +81,58 @@ public struct LiveSource: Codable, Sendable, Identifiable, Hashable {
         case .object(let dict):
             let rawURL = LenientJSON.str(dict["url"]) ?? ""
             let url = resolveLiveURL(rawURL, against: configURL)
+            let group = nonEmpty(LenientJSON.str(dict["group"]))
             let name = nonEmpty(LenientJSON.str(dict["name"]))
                 ?? defaultName(for: url, index: index)
             return LiveSource(
                 name: name,
                 url: url,
-                group: nonEmpty(LenientJSON.str(dict["group"])),
+                group: group,
                 ua: nonEmpty(LenientJSON.str(dict["ua"])),
                 header: nonEmpty(LenientJSON.str(dict["header"])),
                 epg: nonEmpty(LenientJSON.str(dict["epg"])),
                 logo: nonEmpty(LenientJSON.str(dict["logo"])),
                 playerType: nonEmpty(LenientJSON.str(dict["playerType"])),
                 type: LenientJSON.int(dict["type"]) ?? 0,
-                ext: dict["ext"]
+                ext: dict["ext"],
+                inlineChannels: inlineChannels(from: dict["channels"],
+                                               defaultGroup: group ?? "未分类")
             )
         default:
             return LiveSource(name: "直播源 \(index + 1)", url: "")
         }
+    }
+
+    /// lives[].channels（内联频道）→ [LiveChannel]；缺 name/urls 的条目跳过
+    private static func inlineChannels(from raw: JSONValue?, defaultGroup: String) -> [LiveChannel] {
+        guard case .array(let items)? = raw else { return [] }
+        var result: [LiveChannel] = []
+        for (index, item) in items.enumerated() {
+            guard case .object(let dict) = item else { continue }
+            let name = nonEmpty(LenientJSON.str(dict["name"])) ?? "频道 \(index + 1)"
+            var urls: [String] = []
+            if case .array(let rawURLs)? = dict["urls"] {
+                urls = rawURLs.compactMap { $0.stringValue }
+            } else if let joined = LenientJSON.str(dict["urls"]) {
+                urls = joined.components(separatedBy: "#")
+            }
+            if let single = LenientJSON.str(dict["url"]) { urls.append(single) }
+            urls = urls
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            var unique: [String] = []
+            for url in urls where !unique.contains(url) { unique.append(url) }
+            guard !unique.isEmpty else { continue }
+            result.append(LiveChannel(
+                name: name,
+                group: nonEmpty(LenientJSON.str(dict["group"])) ?? defaultGroup,
+                urls: unique,
+                logo: nonEmpty(LenientJSON.str(dict["logo"])),
+                tvgID: nonEmpty(LenientJSON.str(dict["tvg-id"]))
+                    ?? nonEmpty(LenientJSON.str(dict["tvgID"]))
+            ))
+        }
+        return result
     }
 
     private static func resolveLiveURL(_ raw: String, against configURL: String?) -> String {
