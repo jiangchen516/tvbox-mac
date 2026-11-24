@@ -41,6 +41,22 @@ TVBox 的 macOS 原生移植（Swift + SwiftUI + AVFoundation + JavaScriptCore�
 
 CatVod（`type=1`）与 JS Spider 源**不需要**以下任何组件。要让 `type=3` / `csp_` 的 Android Dex 源在本机运行，才需要：
 
+一键安装（推荐，Apple Silicon）：
+
+```bash
+bash scripts/setup.sh --android               # SDK 组件 + AVD
+bash scripts/setup.sh --android --with-bridge # 再加 Bridge APK（JDK 17）
+# 或单独执行：
+bash scripts/install-android-runtime.sh [--yes] [--with-bridge]
+```
+
+脚本会：
+
+1. 缺少 cmdline-tools 时下载 Google 官方包；
+2. 用 `sdkmanager` / 新版 `android sdk install` 安装缺失组件（约 1.5GB，已安装的跳过，不会删除任何东西）；
+3. 在 `~/Library/Application Support/TVBoxMac/managed-android-runtime/avd` 创建 `TVBoxMac_Runtime`（avdmanager 失败时手写 AVD 配置兜底）；
+4. 传 `--with-bridge` 时才构建并签名 Bridge APK（需要 JDK 17，会联网拉 Gradle）。
+
 | 依赖 | 要求 | 用途 |
 |---|---|---|
 | Android SDK | 含 `platform-tools/adb`、`emulator`，默认路径 `~/Library/Android/sdk` | 启动受控模拟器、端口转发 |
@@ -50,7 +66,8 @@ CatVod（`type=1`）与 JS Spider 源**不需要**以下任何组件。要让 `t
 | ADB server | 应用使用**独立端口 5038**（不占用 Android Studio 的 5037） | 退出时只关闭自己的 server |
 | 端口 | 模拟器 console `5556`、Bridge `9978/9979`，宿主机转发 `19978/19979` | 桥通信与播放代理 |
 
-模拟器与 AVD **不打进 `.app`**，需要本机自行准备；Bridge APK 可以随包分发（当前打包脚本会在存在时复制）。
+**仓库不包含** Android SDK、模拟器、系统镜像、AVD 或 Bridge APK：这些都由上述脚本在本机安装/构建。
+`.app` 中只会在 `.build/AndroidDexBridge-release.apk` 存在时附带 Bridge（打包脚本自动复制），模拟器与 AVD 始终不在包内。
 
 ### 外部网络服务
 
@@ -69,6 +86,8 @@ cd tvbox-mac
 bash scripts/setup.sh              # 环境自检 + release 构建 + 生成 TVBoxMac.app
 bash scripts/setup.sh --test       # 额外跑单测（81 个，全 mock、不联网）
 bash scripts/setup.sh --run        # 构建后直接运行
+bash scripts/setup.sh --android    # 先安装/检查 Android 运行时依赖（SDK 组件 + AVD）
+bash scripts/setup.sh --android --with-bridge   # 同上，并构建 Bridge APK（需 JDK 17）
 
 # 或手动：
 swift build -c release
