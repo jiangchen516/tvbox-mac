@@ -25,6 +25,7 @@ struct LiveView: View {
     @State private var playError: String?
 
     @State private var showChannelDrawer: Bool = false
+    @State private var drawerPinned: Bool = false
     @State private var drawerHideGeneration: Int = 0
     @State private var hostedWindow: NSWindow?
     @State private var isFullscreen: Bool = false
@@ -90,7 +91,7 @@ struct LiveView: View {
             guard let id, let channel = channel(withID: id) else { return }
             play(channel)
             // 全屏时选完台自动收起频道栏，把画面还给视频
-            if isFullscreen {
+            if isFullscreen, !drawerPinned {
                 cancelDrawerHide()
                 withAnimation(.easeIn(duration: 0.15)) { showChannelDrawer = false }
             }
@@ -110,6 +111,7 @@ struct LiveView: View {
             if isFullscreen, showChannelDrawer {
                 // 全屏下 Esc 先收起频道栏，再按一次才退出全屏
                 cancelDrawerHide()
+                drawerPinned = false
                 withAnimation(.easeIn(duration: 0.15)) { showChannelDrawer = false }
             } else if isFullscreen {
                 toggleFullscreen()
@@ -118,6 +120,7 @@ struct LiveView: View {
         .onChange(of: isFullscreen) { full in
             if !full {
                 drawerHideGeneration += 1
+                drawerPinned = false
                 showChannelDrawer = false
             }
         }
@@ -147,7 +150,7 @@ struct LiveView: View {
             // 所以全屏时视频始终铺满整个窗口。
             Rectangle()
                 .fill(Color.clear)
-                .frame(width: 26)
+                .frame(width: 40)
                 .frame(maxHeight: .infinity)
                 .contentShape(Rectangle())
                 .onHover { inside in
@@ -174,8 +177,20 @@ struct LiveView: View {
 
     private func revealDrawer() {
         drawerHideGeneration += 1
-        guard !showChannelDrawer else { return }
+        guard !drawerPinned, !showChannelDrawer else { return }
         withAnimation(.easeOut(duration: 0.18)) { showChannelDrawer = true }
+    }
+
+    /// 顶栏「频道列表」按钮：钉住时不会因为鼠标移开而自动收起
+    private func toggleChannelDrawer() {
+        if showChannelDrawer, drawerPinned {
+            drawerPinned = false
+            withAnimation(.easeIn(duration: 0.15)) { showChannelDrawer = false }
+        } else {
+            drawerHideGeneration += 1
+            drawerPinned = true
+            withAnimation(.easeOut(duration: 0.18)) { showChannelDrawer = true }
+        }
     }
 
     /// 取消待执行的收起（鼠标又回到频道栏里）
@@ -185,6 +200,7 @@ struct LiveView: View {
 
     /// 鼠标离开后延迟收起，避免从热区滑进频道栏的途中被误关
     private func scheduleDrawerHide() {
+        guard !drawerPinned else { return }
         drawerHideGeneration += 1
         let generation = drawerHideGeneration
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
@@ -378,6 +394,14 @@ struct LiveView: View {
             }
 
             Spacer()
+
+            if isFullscreen {
+                Button { toggleChannelDrawer() } label: {
+                    Image(systemName: "sidebar.left")
+                }
+                .buttonStyle(.plain).foregroundStyle(.white)
+                .help(showChannelDrawer ? "隐藏频道列表" : "显示频道列表")
+            }
 
             Button { stepLine(-1) } label: {
                 Image(systemName: "chevron.left")
