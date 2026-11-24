@@ -13,8 +13,13 @@ TVBox 的 macOS 原生移植（Swift + SwiftUI + AVFoundation + JavaScriptCore�
 git clone https://github.com/jiangchen516/tvbox-mac.git
 cd tvbox-mac
 bash scripts/setup.sh
-open TVBoxMac.app
 ```
+
+装完后启动（任选其一）：
+
+- 双击仓库根目录的 `TVBoxMac.app`；
+- 或在终端执行 `open TVBoxMac.app` —— `open` 是 macOS 的终端命令，效果等同双击；
+- 或安装时直接 `bash scripts/setup.sh --run`，装完自动启动。
 
 `setup.sh` 会按需装齐 Android 运行时（约 1.5 GB，已装的跳过）、构建并打包，首次需要完整 Xcode。
 常用参数：
