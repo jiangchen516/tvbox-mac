@@ -73,6 +73,13 @@ public final class PlayerController: ObservableObject {
             if item.status == .failed {
                 PlayerLog.append(PlayerLog.errorEntrySummary(item))
                 if let err = item.error { PlayerLog.append("item.error 详情: \(err)") }
+                // 立即把失败原因发布给 UI，并停掉 12s 兜底。
+                // 不能只依赖周期 time observer：流卡死/403 时它不保证触发，
+                // 换线路和错误提示都会失灵（表现为黑屏无反馈）。
+                let message = item.error?.localizedDescription ?? "播放失败"
+                DispatchQueue.main.async { [weak self] in
+                    self?.announcePlaybackFailure(message)
+                }
             }
         }
         tcObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] p, _ in
@@ -202,6 +209,15 @@ public final class PlayerController: ObservableObject {
         PlayerLog.append("🔁 播放停滞，自动重连 \(automaticReconnectAttempts)/\(maxAutomaticReconnectAttempts)，从 \(PlayerLog.safeInt(currentTime))s 继续（自动播放=\(reconnectAutoPlay)）")
     }
 
+    /// item 失败时把原因发布给 UI（KVO 回调与单测共用入口）。
+    /// 同时置 initialTimeoutFired，避免 12s 兜底的“无数据”文案覆盖更准确的 403/404 原因。
+    func announcePlaybackFailure(_ message: String) {
+        guard error != message else { return }
+        initialTimeoutFired = true
+        error = message
+        PlayerLog.append("❌ player.error: \(message)")
+    }
+
     /// 初始加载超时：独立定时器（不能用周期时间 observer——AVPlayer 卡死在 t=0 时
     /// 时间不前进，observer 不触发，实测超时永不执行 → 换线路永不启动）
     private func scheduleInitialTimeout() {
@@ -234,6 +250,14 @@ public final class PlayerController: ObservableObject {
         if !headers.isEmpty {
             opts["AVURLAssetHTTPHeaderFieldKey"] = headers
         }
+        // 新 item 的派生状态清零：否则 12s 初始超时守卫会读到上一个频道的
+        // bufferedTime（从第二个频道起兜底永久失效），时长/网速也会残留。
+        bufferedTime = 0
+        duration = 0
+        networkSpeed = 0
+        isBuffering = true
+        lastBufferingState = nil
+        lastTimeControlStatus = .paused
         let asset = AVURLAsset(url: url, options: opts)
         let item = AVPlayerItem(asset: asset)
         player.replaceCurrentItem(with: item)
@@ -378,6 +402,11 @@ public final class PlayerController: ObservableObject {
         savePosition()
         player.pause()
         player.replaceCurrentItem(with: nil)
+        bufferedTime = 0
+        duration = 0
+        networkSpeed = 0
+        isBuffering = false
+        lastBufferingState = nil
         isPlaying = false
     }
 }
