@@ -164,7 +164,7 @@ private struct HistoryRow: View {
                         Text(record.vodName)
                             .font(.headline)
                             .lineLimit(1)
-                        Text("\(record.episodeGroup) · \(record.episodeTitle)")
+                        Text("线路 \(record.episodeGroup) · \(record.episodeTitle)")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -174,9 +174,6 @@ private struct HistoryRow: View {
                                 .foregroundStyle(.tertiary)
                                 .lineLimit(1)
                         }
-                        Text(record.timestamp, style: .relative)
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
