@@ -91,13 +91,22 @@ bash scripts/setup.sh --test       # 同上并跑单测（81 个，全 mock、�
 bash scripts/setup.sh --run        # 同上并直接运行
 bash scripts/setup.sh --no-android # 只构建 App（CatVod/JS 可用，jar 源不可用）
 
-# 或手动：
+# 或手动（只编译/打包，不会安装 Android SDK、模拟器、AVD 或 Bridge）：
 swift build -c release
 swift test                         # 81 tests
 bash scripts/make-app-bundle.sh    # TVBoxMac.app + dist/TVBoxMac.app.zip（ad-hoc 签名）
 ```
 
-首次运行需解除隔离（未做开发者签名）：
+> ⚠️ 手动命令**不会**安装 Android 运行时。这样打出来的 App 只有 CatVod/JS 源可用；
+> 要 jar 源，先跑 `bash scripts/setup.sh`，或单独执行
+> `bash scripts/install-android-runtime.sh` 并提供/构建 Bridge APK。
+
+### 解除隔离（仅下载的包需要）
+
+`setup.sh` / `swift build` 在本机生成的 `.app` **没有 quarantine 属性，不需要执行 `xattr`**，直接打开即可
+（`setup.sh --run` 也会自动处理）。
+
+只有从网上下载的 zip（GitHub Release、别人发的）解压后才需要：
 
 ```bash
 xattr -d com.apple.quarantine TVBoxMac.app
