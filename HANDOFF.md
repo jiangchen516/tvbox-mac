@@ -16,6 +16,9 @@ macOS 原生 TVBox 已可用：豆瓣推荐首页、配置导入、CatVod/JS/托
 最近提交（新→旧）：
 
 ```text
+0cf54fb feat(live): support inline channel lists in lives
+a6033e6 merge: feature/live-tv into main
+fff9a58 docs: refresh handoff for live TV
 a82d28d feat(live): IPTV channel list from config lives
 0688c17 docs: remove third-party source URLs
 e659be1 docs: clarify manual build and quarantine behavior
