@@ -22,6 +22,7 @@ struct HomeView: View {
                         appState.allSearchKeyword = kw
                         appState.showHome = false
                         appState.showHistory = false
+                        appState.showLive = false
                         appState.showAllSearch = true
                     }
                     .help("在所有启用站点里搜索资源（回车）")
@@ -30,6 +31,7 @@ struct HomeView: View {
                     appState.selectedSite = nil
                     appState.showAllSearch = false
                     appState.showHistory = false
+                    appState.showLive = false
                     appState.showHome = true
                 } label: {
                     Label("推荐首页", systemImage: "sparkles.tv")
@@ -49,6 +51,7 @@ struct HomeView: View {
                     appState.selectedSite = nil
                     appState.showAllSearch = false
                     appState.showHome = false
+                    appState.showLive = false
                     appState.showHistory = true
                 } label: {
                     Label("观看历史", systemImage: "clock.arrow.circlepath")
@@ -63,6 +66,26 @@ struct HomeView: View {
                         .padding(.horizontal, 4)
                 )
                 .help("查看最近播放的影片和集数")
+
+                Button {
+                    appState.selectedSite = nil
+                    appState.showAllSearch = false
+                    appState.showHome = false
+                    appState.showHistory = false
+                    appState.showLive = true
+                } label: {
+                    Label("电视直播", systemImage: "antenna.radiowaves.left.and.right")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 3)
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(appState.showLive ? Color.accentColor : Color.primary)
+                .listRowBackground(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(appState.showLive ? Color.accentColor.opacity(0.18) : .clear)
+                        .padding(.horizontal, 4)
+                )
+                .help("IPTV 直播（来自配置的 lives 字段）")
             }
             ForEach(appState.enabledSites, id: \.id) { site in
                 SiteRow(site: site)

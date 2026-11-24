@@ -16,6 +16,7 @@ TVBox 的 macOS 原生移植（Swift + SwiftUI + AVFoundation + JavaScriptCore�
 | 浏览 | 分类 Tab、分页、下拉刷新、海报缓存 |
 | 详情 | 简介、演员、剧集列表、线路切换、收藏 |
 | 播放 | AVPlayer（HLS/MP4）、断点续播、倍速、原生全屏 Space、Esc 退出全屏、窗口置顶、单击画面暂停/播放、暂停提示 |
+| 直播 | 配置 `lives` 里的在线 m3u/txt 频道列表；分组/搜索选台、多线路失败自动回退、上一台/下一台、全屏/置顶 |
 | 容错 | 播放停滞自动重连（限 3 次，保持播放意图）、Mac 睡眠唤醒后重取流并保持暂停、模拟器内部 DNS 失效自动重启运行时 |
 | 搜索 | 单站搜索 + 全站聚合搜索（并发 6、结果流式、按标题相关性过滤）、历史恢复 |
 | 历史 | 侧栏「观看历史」；点击记录打开信息页，播放按钮直接续播；单条删除/清空 |
@@ -87,13 +88,13 @@ git clone https://github.com/jiangchen516/tvbox-mac.git
 cd tvbox-mac
 
 bash scripts/setup.sh              # 默认：装齐 SDK/AVD/Bridge + 构建 + 打包
-bash scripts/setup.sh --test       # 同上并跑单测（81 个，全 mock、不联网）
+bash scripts/setup.sh --test       # 同上并跑单测（102 个，全 mock、不联网）
 bash scripts/setup.sh --run        # 同上并直接运行
 bash scripts/setup.sh --no-android # 只构建 App（CatVod/JS 可用，jar 源不可用）
 
 # 或手动（只编译/打包，不会安装 Android SDK、模拟器、AVD 或 Bridge）：
 swift build -c release
-swift test                         # 81 tests
+swift test                         # 102 tests
 bash scripts/make-app-bundle.sh    # TVBoxMac.app + dist/TVBoxMac.app.zip（ad-hoc 签名）
 ```
 
@@ -124,6 +125,7 @@ TVBoxMacCore/             纯逻辑库（可单测）
 ├── CatVod/               CatVod 协议客户端
 ├── Parser/               parse 规则（type0/type1、cat_ext）
 ├── Spider/               JS Spider + 托管 Android Dex Spider
+├── Live/                 直播播放列表（m3u/txt）解析、频道模型、带缓存的抓取
 ├── Player/               AVFoundation 封装、播放日志
 ├── Douban/               首页豆瓣集合
 └── History/              历史 / 收藏
@@ -136,7 +138,9 @@ docs/                     设计与实测记录（含 managed-android-runtime.md
 1. 打开 App → 设置 → 导入你自己的配置 URL 或选择本地 JSON 文件（本项目不提供任何配置/源地址）；
 2. 启动默认进入「推荐首页」，点海报可全站搜索；
 3. 左侧选择站点浏览，或在侧栏搜索框回车做全站搜索；
-4. 播放器：单击画面暂停/继续、双击全屏、Esc 退出全屏、图钉按钮置顶。
+4. 播放器：单击画面暂停/继续、双击全屏、Esc 退出全屏、图钉按钮置顶；
+5. 侧栏「电视直播」：配置里带 `lives` 时会列出频道（按分组、可搜索），点台即播；
+   某条线路播不了会自动尝试同一频道的备用地址；换台可用「上一台/下一台」。
 
 多份配置会分别绑定各自配置里的 spider jar（避免不同配置的 Guard 类互相覆盖）。
 
@@ -146,7 +150,9 @@ docs/                     设计与实测记录（含 managed-android-runtime.md
 - 部分 Spider 的 jar 版本与站点类名不匹配（例如某些 Guard 类缺失），会返回空数据；应用会给出提示而不是崩溃。
 - 哔哔合集等 B 站源为 DASH，AVPlayer 不支持；已回退到 B 站 mp4（匿名 360P）。
 - 未做正式签名，分发/他人运行需自行解除 quarantine。
-- 直播 IPTV、小程序框架、网盘登录类源未实现（见 `PLAN.md`）。
+- 小程序框架、网盘登录类源未实现（见 `PLAN.md`）。
+- 直播只支持配置 `lives` 指向的**在线 m3u/txt 频道列表**；spider 动态生成的直播源、EPG 节目单与回看未实现，
+  非 http(s) 的地址（如 `proxy://`）会在界面明确提示不支持。
 
 ## 第三方与许可证
 

@@ -9,6 +9,8 @@ final class AppState: ObservableObject {
     @Published var showHome: Bool = true         // 推荐首页（启动默认）
     @Published var showAllSearch: Bool = false   // 全站搜索模式（侧栏搜索框回车触发）
     @Published var showHistory: Bool = false     // 观看历史页面
+    @Published var showLive: Bool = false        // 电视直播页面
+    @Published var liveSources: [LiveSource] = [] // 启用配置里的 lives（已解析相对 URL）
     @Published var allSearchKeyword: String = "" // 全站搜索的已提交关键词
     @Published var selectedConfig: LoadedConfig?
     @Published var showSettings: Bool = false
@@ -19,6 +21,7 @@ final class AppState: ObservableObject {
     let managedAndroidRuntime: ManagedAndroidSpiderRuntime?
     let configStore = ConfigStore()
     let historyStore = HistoryStore()
+    let liveClient = LiveClient()
 
     var hasConfig: Bool { !configs.isEmpty }
 
@@ -126,6 +129,7 @@ final class AppState: ObservableObject {
             }
         }
         configs = bound
+        liveSources = Self.collectLiveSources(from: bound)
         let boundCount = bound.reduce(0) { $0 + $1.loaded.config.sites.filter { $0.jar != nil }.count }
         PlayerLog.append("配置加载: \(bound.count) 份（\(bound.map { $0.loaded.name }.joined(separator: "、"))），已绑定 spider jar 的站点 \(boundCount) 个")
         await client.loadConfigs(bound.map { $0.loaded })
@@ -133,7 +137,30 @@ final class AppState: ObservableObject {
         showHome = true
         showAllSearch = false
         showHistory = false
+        showLive = false
         selectedSite = nil
+        if !liveSources.isEmpty {
+            PlayerLog.append("直播源: \(liveSources.count) 个（\(liveSources.map { $0.name }.joined(separator: "、"))）")
+        }
+    }
+
+    /// 汇总启用配置里的 lives：每份配置的相对地址按该配置 URL 解析，按 name+url 去重。
+    /// 没有 url / 非 http 的条目也保留（UI 会用 unsupportedReason 明确提示）。
+    private static func collectLiveSources(from entries: [ConfigStore.StoredEntry]) -> [LiveSource] {
+        var result: [LiveSource] = []
+        var seen = Set<String>()
+        for entry in entries where entry.loaded.enabled {
+            for (index, raw) in entry.loaded.config.lives.enumerated() {
+                let source = LiveSource.make(from: raw,
+                                             configURL: entry.loaded.url,
+                                             index: index)
+                let key = "\(source.name)|\(source.url)"
+                if seen.insert(key).inserted {
+                    result.append(source)
+                }
+            }
+        }
+        return result
     }
 
     /// 启动时刷新已启用的远程配置一次。界面先使用本地缓存立即启动；远程失败时保留缓存。
@@ -215,6 +242,7 @@ final class AppState: ObservableObject {
         if let id = selectedSite?.id {
             showHome = false
             showHistory = false
+            showLive = false
             UserDefaults.standard.set(id, forKey: Self.lastSiteKey)
         }
     }
