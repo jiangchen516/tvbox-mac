@@ -108,30 +108,80 @@ struct DetailView: View {
         .padding(16)
     }
 
+    private var playGroups: [String] { (fullVod ?? vod).playGroups }
+
+    private var currentGroupIndex: Int { playGroups.firstIndex(of: currentGroup) ?? 0 }
+
+    /// 线路胶囊：真实源常有十几到二十几路，横向溢出会看不到也点不到，
+    /// 所以整行放进横向 ScrollView，两端加 ‹ › 逐条切换，并显示 x/总数。
     private var groupPicker: some View {
-        HStack(spacing: 8) {
-            ForEach((fullVod ?? vod).playGroups, id: \.self) { g in
-                let playing = isPlayingGroup(g)
-                Button {
-                    currentGroup = g
-                    episodes = (fullVod ?? vod).episodes(group: g)
-                } label: {
-                    HStack(spacing: 4) {
-                        if playing {
-                            Image(systemName: "play.fill").font(.caption2)
-                        }
-                        Text(g)
-                    }
-                }
-                .buttonStyle(.borderless)
-                .padding(.horizontal, 12).padding(.vertical, 6)
-                .background(Capsule().fill(g == currentGroup ? Color.accentColor.opacity(0.2) : .clear))
-                .overlay(Capsule().strokeBorder(playing ? Color.green : (g == currentGroup ? Color.accentColor : .clear)))
-                .help(playing ? "正在播放此线路" : "")
+        HStack(spacing: 6) {
+            Button { stepGroup(-1) } label: {
+                Image(systemName: "chevron.left")
             }
-            Spacer()
+            .buttonStyle(.borderless)
+            .disabled(currentGroupIndex <= 0)
+            .help("上一线路")
+
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(playGroups, id: \.self) { g in
+                            groupPill(g).id(g)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+                .onChange(of: currentGroup) { g in
+                    withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(g, anchor: .center) }
+                }
+            }
+
+            Button { stepGroup(1) } label: {
+                Image(systemName: "chevron.right")
+            }
+            .buttonStyle(.borderless)
+            .disabled(currentGroupIndex >= playGroups.count - 1)
+            .help("下一线路")
+
+            Text("\(currentGroupIndex + 1)/\(playGroups.count)")
+                .font(.caption).foregroundStyle(.secondary).monospacedDigit()
         }
         .padding(.horizontal, 16)
+        .padding(.bottom, 4)
+    }
+
+    private func groupPill(_ g: String) -> some View {
+        let playing = isPlayingGroup(g)
+        return Button {
+            selectGroup(g)
+        } label: {
+            HStack(spacing: 4) {
+                if playing {
+                    Image(systemName: "play.fill").font(.caption2)
+                }
+                Text(g)
+            }
+        }
+        .buttonStyle(.borderless)
+        .padding(.horizontal, 12).padding(.vertical, 6)
+        .background(Capsule().fill(g == currentGroup ? Color.accentColor.opacity(0.2) : .clear))
+        .overlay(Capsule().strokeBorder(playing ? Color.green : (g == currentGroup ? Color.accentColor : .clear)))
+        .help(playing ? "正在播放此线路" : "")
+        .fixedSize()
+    }
+
+    private func selectGroup(_ g: String) {
+        currentGroup = g
+        episodes = (fullVod ?? vod).episodes(group: g)
+    }
+
+    private func stepGroup(_ delta: Int) {
+        let groups = playGroups
+        guard !groups.isEmpty else { return }
+        let target = currentGroupIndex + delta
+        guard target >= 0, target < groups.count else { return }
+        selectGroup(groups[target])
     }
 
     private var episodeGrid: some View {
