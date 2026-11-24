@@ -224,6 +224,74 @@ final class LiveTests: XCTestCase {
         XCTAssertEqual(channel.headers["Referer"], "https://ref.example/", "缺失的键应补上")
     }
 
+    // MARK: - m3u #EXTGRP 分组
+
+    func testM3UExtGrpAfterExtInf() {
+        let text = """
+        #EXTM3U
+        #EXTINF:-1,频道A
+        #EXTGRP:新闻
+        http://example.com/a.m3u8
+        """
+        let genres = LiveParser.parse(text)
+        XCTAssertEqual(genres[0].channels.first?.group, "新闻")
+    }
+
+    func testM3UExtGrpStickyBeforeExtInf() {
+        let text = """
+        #EXTM3U
+        #EXTGRP:体育
+        #EXTINF:-1,频道A
+        http://example.com/a.m3u8
+        #EXTINF:-1,频道B
+        http://example.com/b.m3u8
+        """
+        let genres = LiveParser.parse(text)
+        XCTAssertEqual(genres.count, 1)
+        XCTAssertEqual(genres[0].name, "体育")
+        XCTAssertEqual(genres[0].channels.map(\.group), ["体育", "体育"])
+    }
+
+    func testM3UGroupTitleWinsOverExtGrp() {
+        // group-title 优先于粘性 #EXTGRP
+        let stickyText = """
+        #EXTM3U
+        #EXTGRP:A
+        #EXTINF:-1 group-title="B",频道A
+        http://example.com/a.m3u8
+        """
+        XCTAssertEqual(LiveParser.parse(stickyText).first?.channels.first?.group, "B")
+
+        // group-title 优先于频道自己的 #EXTGRP
+        let ownText = """
+        #EXTM3U
+        #EXTINF:-1 group-title="B",频道B
+        #EXTGRP:C
+        http://example.com/b.m3u8
+        """
+        XCTAssertEqual(LiveParser.parse(ownText).first?.channels.first?.group, "B")
+    }
+
+    func testM3UExtGrpEmptyValueIsIgnored() {
+        // 空值（粘性位置）
+        let stickyText = """
+        #EXTM3U
+        #EXTGRP:
+        #EXTINF:-1,频道A
+        http://example.com/a.m3u8
+        """
+        XCTAssertEqual(LiveParser.parse(stickyText).first?.channels.first?.group, "未分类")
+
+        // 空值（频道自己的位置）
+        let ownText = """
+        #EXTM3U
+        #EXTINF:-1,频道B
+        #EXTGRP:
+        http://example.com/b.m3u8
+        """
+        XCTAssertEqual(LiveParser.parse(ownText).first?.channels.first?.group, "未分类")
+    }
+
     func testPlaybackHeadersChannelOverridesSourceCaseInsensitively() {
         let source = LiveSource(name: "测试源", url: "https://example.com/live.txt",
                                 ua: "SourceUA/1.0",

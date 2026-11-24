@@ -119,7 +119,7 @@ docs/managed-android-runtime.md  模拟器方案与踩坑记录
 - 电视直播：配置 `lives` → 在线 m3u/txt 频道列表或内联 `channels` 数组；支持 `,#genre#` 分组、`#` 多线路合并、
   UTF-8/GB18030/base64 容错、频道搜索、上一台/下一台、线路失败自动回退、全屏/置顶；
   `LiveClient` 5 分钟缓存 + 手动刷新；无 URL / 非 http(s) 的条目会提示不支持；
-  m3u 的逐频道 `#EXTVLCOPT` UA/Referer 会被继承。
+  m3u 的逐频道 `#EXTVLCOPT` UA/Referer 会被继承；m3u 的 `#EXTGRP` 分组会被识别。
 - 文档已删除所有具体第三方源地址。
 
 ---

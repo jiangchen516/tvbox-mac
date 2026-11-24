@@ -8,7 +8,9 @@
 // 2. m3u：
 //      #EXTM3U
 //      #EXTINF:-1 tvg-id="cctv1" tvg-logo="…" group-title="央视",CCTV-1 综合
+//      #EXTGRP:新闻            （紧跟 EXTINF 之后：只属于该频道；独立出现：粘性分组）
 //      http://…/a.m3u8
+//    分组优先级：EXTINF 的 group-title > 频道自己的 #EXTGRP > 粘性 #EXTGRP > "未分类"
 //
 // 真实源很脏：CRLF、BOM、空行、注释、重名频道、URL 缺失、GBK 编码、偶尔整个
 // 列表被 base64 包一层。全部按"能解析就解析，解析不出就跳过"处理。
@@ -73,7 +75,10 @@ public enum LiveParser {
 
     public static func parseM3U(_ text: String) -> [LiveGenre] {
         var builder = GenreBuilder()
-        var pending: (name: String, group: String, logo: String?, tvgID: String?,
+        // 粘性 #EXTGRP（独立出现在若干 #EXTINF 之前）：后续没有 group-title、
+        // 也没有自己的 #EXTGRP 的频道都归这个组
+        var stickyGroup: String?
+        var pending: (name: String, group: String?, logo: String?, tvgID: String?,
                        headers: [String: String])?
 
         for rawLine in normalizeNewlines(text).split(separator: "\n", omittingEmptySubsequences: true) {
@@ -84,11 +89,26 @@ public enum LiveParser {
                 let attrs = attributes(in: line)
                 let name = m3uName(from: line, attrs: attrs)
                 guard !name.isEmpty else { continue }
-                let group = attrs["group-title"].flatMap { nonEmpty($0) } ?? "未分类"
+                let group = attrs["group-title"].flatMap { nonEmpty($0) }
                 pending = (name, group,
                            attrs["tvg-logo"].flatMap { nonEmpty($0) },
                            attrs["tvg-id"].flatMap { nonEmpty($0) },
                            [:])
+                continue
+            }
+            // #EXTGRP:<分组名>（大小写不敏感，值去首尾空白，空值忽略）。
+            // 紧跟 #EXTINF 之后、URL 之前：只属于该频道（显式 group-title 优先）；
+            // 其余位置：作为粘性分组，供后续没有 group-title、也没有自己的 #EXTGRP 的频道继承。
+            if line.uppercased().hasPrefix("#EXTGRP:") {
+                let value = nonEmpty(String(line.dropFirst("#EXTGRP:".count)))
+                if let value {
+                    if var entry = pending {
+                        if entry.group == nil { entry.group = value }
+                        pending = entry
+                    } else {
+                        stickyGroup = value
+                    }
+                }
                 continue
             }
             // #EXTVLCOPT 只对紧跟在当前 #EXTINF 之后、URL 之前的频道生效
@@ -102,7 +122,8 @@ public enum LiveParser {
             guard let entry = pending else { continue }
             let url = line
             guard !url.isEmpty else { continue }
-            builder.add(LiveChannel(name: entry.name, group: entry.group, urls: [url],
+            let group = entry.group ?? stickyGroup ?? "未分类"
+            builder.add(LiveChannel(name: entry.name, group: group, urls: [url],
                                     logo: entry.logo, tvgID: entry.tvgID,
                                     headers: entry.headers))
             pending = nil
