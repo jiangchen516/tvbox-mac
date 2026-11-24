@@ -73,7 +73,8 @@ public enum LiveParser {
 
     public static func parseM3U(_ text: String) -> [LiveGenre] {
         var builder = GenreBuilder()
-        var pending: (name: String, group: String, logo: String?, tvgID: String?)?
+        var pending: (name: String, group: String, logo: String?, tvgID: String?,
+                       headers: [String: String])?
 
         for rawLine in normalizeNewlines(text).split(separator: "\n", omittingEmptySubsequences: true) {
             let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -86,19 +87,47 @@ public enum LiveParser {
                 let group = attrs["group-title"].flatMap { nonEmpty($0) } ?? "未分类"
                 pending = (name, group,
                            attrs["tvg-logo"].flatMap { nonEmpty($0) },
-                           attrs["tvg-id"].flatMap { nonEmpty($0) })
+                           attrs["tvg-id"].flatMap { nonEmpty($0) },
+                           [:])
                 continue
             }
-            if line.hasPrefix("#") { continue }   // #EXTM3U / #EXTVLCOPT / 注释
+            // #EXTVLCOPT 只对紧跟在当前 #EXTINF 之后、URL 之前的频道生效
+            if let option = vlcOptionHeader(from: line), var entry = pending {
+                entry.headers[option.key] = option.value
+                pending = entry
+                continue
+            }
+            if line.hasPrefix("#") { continue }   // #EXTM3U / #KODIPROP / 注释
 
             guard let entry = pending else { continue }
             let url = line
             guard !url.isEmpty else { continue }
             builder.add(LiveChannel(name: entry.name, group: entry.group, urls: [url],
-                                    logo: entry.logo, tvgID: entry.tvgID))
+                                    logo: entry.logo, tvgID: entry.tvgID,
+                                    headers: entry.headers))
             pending = nil
         }
         return builder.result
+    }
+
+    /// 解析 "#EXTVLCOPT:http-user-agent=…" / "…http-referrer=…" 为频道的规范头。
+    /// 不认识的选项、缺值、没有 "=" 的行返回 nil（忽略而不报错）。
+    static func vlcOptionHeader(from line: String) -> (key: String, value: String)? {
+        let prefix = "#EXTVLCOPT:"
+        guard line.uppercased().hasPrefix(prefix) else { return nil }
+        let body = line.dropFirst(prefix.count)
+        guard let equals = body.firstIndex(of: "=") else { return nil }
+        let key = body[..<equals].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let value = body[body.index(after: equals)...].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return nil }
+        switch key {
+        case "http-user-agent":
+            return ("User-Agent", value)
+        case "http-referrer", "http-referer":
+            return ("Referer", value)
+        default:
+            return nil
+        }
     }
 
     /// 解析 #EXTINF 行里的 key="value" 属性（大小写不敏感取键）
@@ -176,6 +205,10 @@ private struct GenreBuilder {
         }
         if existing.logo == nil { existing.logo = channel.logo }
         if existing.tvgID == nil { existing.tvgID = channel.tvgID }
+        // 频道级请求头同样合并：已有键以先出现的为准，缺的键补上
+        for (key, value) in channel.headers where existing.headers[key] == nil {
+            existing.headers[key] = value
+        }
         genres[genreIndex].channels[channelIndex] = existing
     }
 

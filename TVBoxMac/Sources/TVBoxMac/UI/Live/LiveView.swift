@@ -408,7 +408,7 @@ struct LiveView: View {
         currentChannel = channel
         urlIndex = index
         playError = nil
-        controller.play(url: url, headers: source.requestHeaders)
+        controller.play(url: url, headers: source.playbackHeaders(for: channel))
         PlayerLog.append("📺 直播 \(source.name) · \(channel.group)/\(channel.name)（线路 \(index + 1)/\(channel.urls.count)）→ \(channel.urls[index].prefix(120))")
     }
 

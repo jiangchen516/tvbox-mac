@@ -153,7 +153,129 @@ final class LiveTests: XCTestCase {
         XCTAssertTrue(LiveParser.parse("not a playlist at all").isEmpty)
     }
 
+    // MARK: - m3u 逐频道请求头（#EXTVLCOPT）
+
+    func testM3UChannelHeadersFromEXTVLCOPT() {
+        let text = """
+        #EXTM3U
+        #EXTINF:-1 group-title="测试组",频道A
+        #EXTVLCOPT:http-user-agent=TestUA/1.0 (Macintosh)
+        #EXTVLCOPT:http-referer=https://ref.example/
+        http://example.com/a.m3u8
+        """
+        let genres = LiveParser.parse(text)
+        XCTAssertEqual(genres.count, 1)
+        let channel = genres[0].channels[0]
+        XCTAssertEqual(channel.headers["User-Agent"], "TestUA/1.0 (Macintosh)")
+        XCTAssertEqual(channel.headers["Referer"], "https://ref.example/")
+        XCTAssertEqual(channel.headers.count, 2)
+    }
+
+    func testM3UEXTVLCOPTAccumulatesAndLaterOverrides() {
+        let text = """
+        #EXTM3U
+        #EXTINF:-1,频道A
+        #EXTVLCOPT:http-user-agent=OldUA/1.0
+        #EXTVLCOPT:network-caching=1000
+        #KODIPROP:inputstream=inputstream.adaptive
+        #EXTVLCOPT:http-referrer=https://ref.example/
+        #EXTVLCOPT:http-user-agent=NewUA/2.0
+        http://example.com/a.m3u8
+        """
+        let channel = LiveParser.parse(text)[0].channels[0]
+        XCTAssertEqual(channel.headers["User-Agent"], "NewUA/2.0")
+        XCTAssertEqual(channel.headers["Referer"], "https://ref.example/")
+        XCTAssertEqual(channel.headers.count, 2, "未知的 VLC/KODI 选项应被忽略")
+    }
+
+    func testM3UEXTVLCOPTDoesNotLeakToNextChannel() {
+        let text = """
+        #EXTM3U
+        #EXTVLCOPT:http-user-agent=OrphanUA/1.0
+        #EXTINF:-1 group-title="测试组",频道A
+        #EXTVLCOPT:http-user-agent=UA/1.0
+        http://example.com/a.m3u8
+        #EXTINF:-1 group-title="测试组",频道B
+        http://example.com/b.m3u8
+        """
+        let channels = LiveParser.parse(text)[0].channels
+        XCTAssertEqual(channels.map(\.name), ["频道A", "频道B"])
+        XCTAssertEqual(channels[0].headers, ["User-Agent": "UA/1.0"])
+        XCTAssertTrue(channels[1].headers.isEmpty, "EXTVLCOPT 不应泄漏到下一个频道")
+    }
+
+    func testM3UDuplicateChannelMergesHeaders() {
+        let text = """
+        #EXTM3U
+        #EXTINF:-1 group-title="测试组",频道A
+        #EXTVLCOPT:http-user-agent=UA/1.0
+        http://example.com/a.m3u8
+        #EXTINF:-1 group-title="测试组",频道A
+        #EXTVLCOPT:http-user-agent=UA/2.0
+        #EXTVLCOPT:http-referrer=https://ref.example/
+        http://example.com/b.m3u8
+        """
+        let genre = LiveParser.parse(text)[0]
+        XCTAssertEqual(genre.channels.count, 1)
+        let channel = genre.channels[0]
+        XCTAssertEqual(channel.urls, ["http://example.com/a.m3u8",
+                                      "http://example.com/b.m3u8"])
+        XCTAssertEqual(channel.headers["User-Agent"], "UA/1.0", "已有键保留先出现的值")
+        XCTAssertEqual(channel.headers["Referer"], "https://ref.example/", "缺失的键应补上")
+    }
+
+    func testPlaybackHeadersChannelOverridesSourceCaseInsensitively() {
+        let source = LiveSource(name: "测试源", url: "https://example.com/live.txt",
+                                ua: "SourceUA/1.0",
+                                header: "referer:https://source.example/;X-Token:token-1")
+        let channel = LiveChannel(name: "频道A", group: "测试组",
+                                  urls: ["http://example.com/a.m3u8"],
+                                  headers: ["user-agent": "ChannelUA/2.0",
+                                            "http-referrer": "https://channel.example/"])
+        let headers = source.playbackHeaders(for: channel)
+        XCTAssertEqual(headers["User-Agent"], "ChannelUA/2.0")
+        XCTAssertEqual(headers["Referer"], "https://channel.example/")
+        XCTAssertEqual(headers["X-Token"], "token-1", "未覆盖的 source 级头应保留")
+        XCTAssertEqual(headers.keys.filter { $0.lowercased() == "user-agent" }.count, 1)
+        XCTAssertEqual(headers.keys.filter { $0.lowercased() == "referer" }.count, 1)
+
+        // 频道没有覆盖某个头时，source 级的值原样保留（仍用规范键名）
+        let plain = LiveChannel(name: "频道B", group: "测试组",
+                                urls: ["http://example.com/b.m3u8"])
+        let inherited = source.playbackHeaders(for: plain)
+        XCTAssertEqual(inherited["User-Agent"], "SourceUA/1.0")
+        XCTAssertEqual(inherited["Referer"], "https://source.example/")
+
+        // header 里用小写 user-agent 且没配 ua 时，不应再补默认 UA 把它的值盖掉
+        let headerOnly = LiveSource(name: "头部源", url: "https://example.com/live.txt",
+                                    header: "user-agent:HeaderUA/3.0")
+        let fromHeader = headerOnly.playbackHeaders(for: plain)
+        XCTAssertEqual(fromHeader["User-Agent"], "HeaderUA/3.0")
+        XCTAssertEqual(fromHeader.keys.filter { $0.lowercased() == "user-agent" }.count, 1)
+    }
+
     // MARK: - LiveSource
+
+    func testLiveSourceDecodesInlineChannelsWithoutHeaders() throws {
+        let json = """
+        {
+          "name": "内联直播",
+          "url": "",
+          "channels": [
+            {"name": "频道A", "group": "测试组", "urls": ["http://example.com/a.m3u8"]},
+            {"name": "频道B", "urls": ["http://example.com/b.m3u8"],
+             "headers": {"User-Agent": "UA/1.0", "Referer": "https://ref.example/"}}
+          ]
+        }
+        """
+        let source = try JSONDecoder().decode(LiveSource.self, from: Data(json.utf8))
+        XCTAssertEqual(source.inlineChannels.count, 2)
+        XCTAssertTrue(source.inlineChannels[0].headers.isEmpty)
+        XCTAssertEqual(source.inlineChannels[0].group, "测试组")
+        XCTAssertEqual(source.inlineChannels[1].headers["User-Agent"], "UA/1.0")
+        XCTAssertEqual(source.inlineChannels[1].headers["Referer"], "https://ref.example/")
+        XCTAssertEqual(source.inlineChannels[1].group, "未分类", "缺 group 时用默认分组")
+    }
 
     func testLiveSourceFromObject() {
         let raw = JSONValue.object([
