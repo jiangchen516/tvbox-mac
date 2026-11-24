@@ -301,17 +301,21 @@ struct LiveView: View {
 
             Spacer()
 
-            Button { stepChannel(-1) } label: {
+            Button { stepLine(-1) } label: {
                 Image(systemName: "chevron.left")
             }
             .buttonStyle(.plain).foregroundStyle(.white)
-            .help("上一台")
+            .disabled(!canStepLine(-1))
+            .opacity(canStepLine(-1) ? 1 : 0.35)
+            .help("上一线路")
 
-            Button { stepChannel(1) } label: {
+            Button { stepLine(1) } label: {
                 Image(systemName: "chevron.right")
             }
             .buttonStyle(.plain).foregroundStyle(.white)
-            .help("下一台")
+            .disabled(!canStepLine(1))
+            .opacity(canStepLine(1) ? 1 : 0.35)
+            .help("下一线路")
 
             Button {
                 isAlwaysOnTop.toggle()
@@ -412,25 +416,17 @@ struct LiveView: View {
         PlayerLog.append("📺 直播 \(source.name) · \(channel.group)/\(channel.name)（线路 \(index + 1)/\(channel.urls.count)）→ \(channel.urls[index].prefix(120))")
     }
 
-    private func stepChannel(_ delta: Int) {
-        let list = filteredGenres.flatMap { $0.channels }
-        guard !list.isEmpty else { return }
-        let current = currentChannel.flatMap { playing in
-            list.firstIndex(where: { $0.id == playing.id })
-        }
-        let next: Int
-        if let current {
-            next = (current + delta + list.count) % list.count
-        } else {
-            next = delta >= 0 ? 0 : list.count - 1
-        }
-        let target = list[next]
-        if selectedChannelID == target.id {
-            // 列表选中项没变时 onChange 不会触发；只有确实没在播这个台才手动切
-            if currentChannel?.id != target.id { play(target) }
-        } else {
-            selectedChannelID = target.id   // 由 onChange(of: selectedChannelID) 起播
-        }
+    /// 播放器顶栏的 ‹ › 切换同一频道的线路（换台统一在左侧列表点击）。
+    /// 首/末线路时对应按钮禁用；单线路频道两个按钮都禁用。
+    private func canStepLine(_ delta: Int) -> Bool {
+        guard let channel = currentChannel, channel.urls.count > 1 else { return false }
+        let target = urlIndex + delta
+        return target >= 0 && target < channel.urls.count
+    }
+
+    private func stepLine(_ delta: Int) {
+        guard let channel = currentChannel, canStepLine(delta) else { return }
+        play(channel, urlIndex: urlIndex + delta)
     }
 
     // MARK: - 窗口
