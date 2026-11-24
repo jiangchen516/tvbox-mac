@@ -127,6 +127,8 @@ struct ContentView: View {
                     DiscoverView()
                 } else if appState.showHistory {
                     HistoryView()
+                } else if appState.showLive {
+                    LiveView()
                 } else if appState.showAllSearch {
                     SearchAllView()
                 } else if let site = appState.selectedSite {
