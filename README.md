@@ -1,94 +1,128 @@
 # TVBox for macOS
 
-TVBox 的 macOS 原生移植版（个人自用）。Swift + SwiftUI + AVFoundation + JavaScriptCore。
+TVBox 的 macOS 原生移植（Swift + SwiftUI + AVFoundation + JavaScriptCore），协议层兼容 TVBox 配置生态。
+个人学习/自用项目，不内置任何影视源；配置由使用者自行导入，源的合法性与可用性由使用者自行负责。
 
-协议层忠实移植 TVBox 配置生态，**兼容 iyouhun 等聚合源仓**：
+- 当前版本：`0.2.1`（应用内「设置 → 关于」与 `Info.plist` 同源）
+- 仓库已公开：https://github.com/jiangchen516/tvbox-mac
+- 默认分支：`main`
 
-- ✅ 单配置 JSON / **聚合列表**（`{"urls":[{name,url}...]}`，如 `https://www.iyouhun.com/tv/dc`）
-- ✅ CatVod（苹果CMS）标准源：浏览 / 分类 / 搜索 / 详情 / 选集
-- ✅ parse 解析规则（type0 模板拼接 / type1 JSON 二次解析，含 `cat_ext` base64url 机制）
-- ✅ JS Spider 源（JavaScriptCore 复刻 TVBox spider API：fetch/parseText/parseJson/cache/md5/base64）
-- ✅ 去广告规则（m3u8 广告行 / url 广告参数）
-- ✅ 历史 / 收藏 / 断点续播 / 倍速 / 多播放组
-- ⏳ 直播 IPTV、小程序框架：见 `PLAN.md` 里程碑
+## 功能
 
-## 架构
+| 模块 | 能力 |
+|---|---|
+| 配置 | 单配置 JSON、裸站点数组、聚合列表（`{"urls":[...]}`）；启动时后台刷新已启用配置一次，失败保留本地缓存 |
+| 首页 | 豆瓣推荐（正在热映 / 热门剧集 / 热门综艺 / 热门动漫 / Top250），点海报全站搜索 |
+| 浏览 | 分类 Tab、分页、下拉刷新、海报缓存 |
+| 详情 | 简介、演员、剧集列表、线路切换、收藏 |
+| 播放 | AVPlayer（HLS/MP4）、断点续播、倍速、原生全屏 Space、Esc 退出全屏、窗口置顶、单击画面暂停/播放、暂停提示 |
+| 容错 | 播放停滞自动重连（限 3 次，保持播放意图）、Mac 睡眠唤醒后重取流并保持暂停、模拟器内部 DNS 失效自动重启运行时 |
+| 搜索 | 单站搜索 + 全站聚合搜索（并发 6、结果流式、按标题相关性过滤）、历史恢复 |
+| 历史 | 侧栏「观看历史」；点击记录打开信息页，播放按钮直接续播；单条删除/清空 |
+| Spider | JS Spider（JavaScriptCore）与托管 Android Dex Spider（`csp_`/jar） |
 
-```
-TVBoxMac/                SwiftUI 应用（App / UI）
-TVBoxMacCore/            纯逻辑库（macOS 13+）
-├── Models/              共享类型契约 + 宽容 JSON 解码
-├── Config/              配置加载（单配置/聚合列表）+ 持久化
-├── Networking/          HTTPClient（可注入 mock）
-├── CatVod/              CatVod 协议客户端
-├── Parser/              parse 规则引擎
-├── AdFilter/            去广告
-├── Spider/              JS Spider 运行时 + SpiderClient
-├── Player/              AVFoundation 播放封装
-└── History/             历史/收藏
-```
+## 依赖关系
 
-详细计划与里程碑见 [PLAN.md](PLAN.md)。
+### 必需（不安装无法运行）
 
-## CI 构建（GitHub Actions）
+| 依赖 | 版本/说明 |
+|---|---|
+| macOS | **13 Ventura 及以上**（`Package.swift` 声明 `.macOS(.v13)`；开发机实测 macOS 26/27） |
+| Xcode | **完整 Xcode 27**（或至少带 XCTest + SwiftUIMacros 的 Xcode）。只装 Command Line Tools 时：SwiftUI 应用层编不过、`swift test` 跑不了 |
+| Swift | 6.x（Xcode 自带） |
+| 第三方 Swift 包 | **无**。仅系统框架：SwiftUI / AVFoundation / AVKit / JavaScriptCore / AppKit / CryptoKit |
 
-推送后自动在 `macos-14` runner 上：
+> 构建前若用非默认 Xcode 路径：
+> ```bash
+> export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+> ```
 
-```
-swift build -c release → swift test → scripts/make-app-bundle.sh → 上传 TVBoxMac.app
-```
+### 可选（只影响 `csp_` / jar 型 Spider 源）
 
-到 Actions 的 Artifacts 里下载 `TVBoxMac.app` 即可。
+CatVod（`type=1`）与 JS Spider 源**不需要**以下任何组件。要让 `type=3` / `csp_` 的 Android Dex 源在本机运行，才需要：
 
-## 首次运行
+| 依赖 | 要求 | 用途 |
+|---|---|---|
+| Android SDK | 含 `platform-tools/adb`、`emulator`，默认路径 `~/Library/Android/sdk` | 启动受控模拟器、端口转发 |
+| 系统镜像 | `system-images;android-35;google_apis;arm64-v8a` | 模拟器系统 |
+| AVD | 名称 **`TVBoxMac_Runtime`**，放在 `~/Library/Application Support/TVBoxMac/managed-android-runtime/avd` | 应用启动的虚拟设备 |
+| Bridge APK | `com.okvideomac.dexbridge`，构建产物 `.build/AndroidDexBridge-release.apk`；存在时会被打进 `.app/Contents/Resources` | 在模拟器内加载 jar、暴露 HTTP 桥 |
+| ADB server | 应用使用**独立端口 5038**（不占用 Android Studio 的 5037） | 退出时只关闭自己的 server |
+| 端口 | 模拟器 console `5556`、Bridge `9978/9979`，宿主机转发 `19978/19979` | 桥通信与播放代理 |
 
-自签 + ad-hoc 签名，macOS Gatekeeper 会拦，解除隔离：
+模拟器与 AVD **不打进 `.app`**，需要本机自行准备；Bridge APK 可以随包分发（当前打包脚本会在存在时复制）。
+
+### 外部网络服务
+
+| 服务 | 用途 | 说明 |
+|---|---|---|
+| 各配置源站点 | 浏览/搜索/播放 | 由用户导入的配置决定 |
+| 豆瓣 rexxar API（`m.douban.com`） | 首页推荐数据 | 需要移动端 UA + `Referer: https://m.douban.com/` |
+| B 站 `api.bilibili.com` | 哔哔合集等 DASH 源转 mp4 | 匿名最高 360P；高画质需 Cookie（未实现） |
+
+## 构建 / 测试 / 打包
 
 ```bash
-xattr -d com.apple.quarantine ~/Downloads/TVBoxMac.app
-open ~/Downloads/TVBoxMac.app
+git clone https://github.com/jiangchen516/tvbox-mac.git
+cd tvbox-mac
+
+bash scripts/setup.sh              # 环境自检 + release 构建 + 生成 TVBoxMac.app
+bash scripts/setup.sh --test       # 额外跑单测（81 个，全 mock、不联网）
+bash scripts/setup.sh --run        # 构建后直接运行
+
+# 或手动：
+swift build -c release
+swift test                         # 81 tests
+bash scripts/make-app-bundle.sh    # TVBoxMac.app + dist/TVBoxMac.app.zip（ad-hoc 签名）
 ```
 
-然后：设置 → 粘贴 `https://www.iyouhun.com/tv/dc` → 导入 → 左侧选站点 → 浏览/搜索 → 点开播放。
-
-## 本地开发（推荐，Mac 上）
+首次运行需解除隔离（未做开发者签名）：
 
 ```bash
-git clone https://github.com/jiangchen516/tvbox-mac.git && cd tvbox-mac
-swift build -c release          # 需 Swift ≥ 5.9（Xcode 自带）
-swift test                      # 50 个单测（全 mock，不联网）
-swift run TVBoxMac              # 直接跑
-bash scripts/make-app-bundle.sh # 出 TVBoxMac.app + zip（ad-hoc 签名）
+xattr -d com.apple.quarantine TVBoxMac.app
+open TVBoxMac.app
 ```
 
-无第三方依赖，全是系统框架。环境要求：**macOS 13+ + Command Line Tools**。
+## 目录结构
 
-## 当前状态（2026-09-17）
+```text
+TVBoxMac/                 SwiftUI 应用（App / UI / 设置 / 播放窗口）
+TVBoxMacCore/             纯逻辑库（可单测）
+├── Models/               宽松 JSON 解码与共享类型
+├── Config/               配置加载与持久化
+├── Networking/           URLSession 封装（可注入 mock）
+├── CatVod/               CatVod 协议客户端
+├── Parser/               parse 规则（type0/type1、cat_ext）
+├── Spider/               JS Spider + 托管 Android Dex Spider
+├── Player/               AVFoundation 封装、播放日志
+├── Douban/               首页豆瓣集合
+└── History/              历史 / 收藏
+scripts/                  setup / 打包 / Bridge 构建 / 源可用性探测
+docs/                     设计与实测记录（含 managed-android-runtime.md）
+```
 
-- ✅ 核心库 Linux (Swift 5.10.1) 编译 + 50 测试全绿；最后全绿 macOS CI：run `35232665274`（`0e28385`）
-- ✅ **IDN 中文域名已修复**：纯 Swift Punycode（RFC 3492，`Punycode.swift`）兜底 + ICU 优先，
-  与 Python stdlib 对拍 22/22；CI 与真机实测确认中
-- 使用：解压 zip → `xattr -d com.apple.quarantine TVBoxMac.app` → 设置导入
-  `https://www.iyouhun.com/tv/dc` → 选站点浏览/播放
+## 使用
 
-### Managed Android Runtime（实验分支）
+1. 打开 App → 设置 → 导入配置 URL（如聚合列表 `https://www.iyouhun.com/tv/dc`）或选择本地 JSON；
+2. 启动默认进入「推荐首页」，点海报可全站搜索；
+3. 左侧选择站点浏览，或在侧栏搜索框回车做全站搜索；
+4. 播放器：单击画面暂停/继续、双击全屏、Esc 退出全屏、图钉按钮置顶。
 
-`feature/managed-android-runtime` 探索在 macOS App 内按需管理 Android/Dex Spider，
-不要求用户连接 Android 设备。当前已完成运行时清单校验、Bridge JSON 合约和可选 Spider
-backend；真实 Runtime/Bridge 二进制、安装器和 `csp_` 端到端执行仍未完成。设计记录见
-[docs/managed-android-runtime.md](docs/managed-android-runtime.md)。
-Bridge 构建脚本固定复用 OKVideoMac 的 GPL Bridge，见 `scripts/build-android-bridge.sh`；
-正式分发前需要完成 GPL 源码和第三方许可证交付。
+多份配置会分别绑定各自配置里的 spider jar（避免不同配置的 Guard 类互相覆盖）。
+
+## 已知限制
+
+- **jar/Dex 源依赖本机 Android SDK + 模拟器**；没有这些组件时 `csp_` 源不可用，但 CatVod/JS 源不受影响。
+- 部分 Spider 的 jar 版本与站点类名不匹配（例如某些 Guard 类缺失），会返回空数据；应用会给出提示而不是崩溃。
+- 哔哔合集等 B 站源为 DASH，AVPlayer 不支持；已回退到 B 站 mp4（匿名 360P）。
+- 未做正式签名，分发/他人运行需自行解除 quarantine。
+- 直播 IPTV、小程序框架、网盘登录类源未实现（见 `PLAN.md`）。
+
+## 第三方与许可证
+
+- 托管 Android 运行时复用的 Dex Bridge（OKVideoMac）及其 FongMi/CatVod 宿主代码受 **GPL-3.0** 及相关第三方许可证约束。本仓库只保存**构建脚本**，不复制第三方源码；若分发包含该 Bridge 的 `.app`，必须同时提供对应源码、许可证与修改说明。
+- 本项目自身代码用于个人学习；不含任何影视资源，不提供、不托管源。
 
 ## 免责声明
 
-本项目为个人学习/自用软件，不包含任何影视资源。配置源（spider/CatVod 站点）由使用者自行提供，其合法性与可用性由使用者自行负责。
-
-## 里程碑测试清单（每版本 Release 附）
-
-- [ ] M1 导入 iyouhun 聚合列表 → 站点列表出现
-- [ ] M2 任选一部剧 → 选集 → 起播 → 退出不丢进度
-- [ ] M3 主力源播放成功率、广告过滤生效
-- [ ] M4 抽 5 个 JS spider 站可搜索可播放
-- [ ] M5 跨站聚合搜索 / 收藏 / 历史
-- [ ] M6 IPTV / 长尾
+本项目仅用于技术学习与个人自用，不提供任何影视内容。使用者自行导入的配置、站点与媒体地址的合法性由使用者自行负责；请遵守当地法律法规。
