@@ -38,6 +38,10 @@ struct PlayerView: View {
     @State private var dblClickMonitor: Any?
     // 单击播放/暂停需要等双击判定窗口（0.28s），期间不能立刻切换
     @State private var singleClickWork: DispatchWorkItem?
+    // 最近一次线路失败原因（常驻显示，不随下一次尝试一闪而过）
+    @State private var lastLineFailure: String?
+    // 方向键监听：左右跳转、上下吞掉（原来会误触发暂停）
+    @State private var keyMonitor: Any?
 
     var body: some View {
         // 控制条在画面下方折叠显隐：显示时画面略缩，隐藏时画面占满——
@@ -46,6 +50,17 @@ struct PlayerView: View {
             videoArea
             if let err = resolveError {
                 errorArea(err)
+            }
+            if let msg = lastLineFailure, !controller.isPlaying {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                    Text(msg).lineLimit(2)
+                }
+                .font(.caption)
+                .foregroundStyle(.orange)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .background(.black.opacity(0.65))
             }
             if controlsVisible {
                 controlBar
@@ -153,6 +168,8 @@ struct PlayerView: View {
             singleClickWork = nil
             if let m = dblClickMonitor { NSEvent.removeMonitor(m) }
             dblClickMonitor = nil
+            if let m = keyMonitor { NSEvent.removeMonitor(m) }
+            keyMonitor = nil
         }
         .onAppear {
             let key = "\(site.id)#\(vod.vod_id)#\(episode.group)#\(episode.title)"
@@ -162,10 +179,25 @@ struct PlayerView: View {
             } else {
                 startResolve()
             }
+            if keyMonitor == nil {
+                keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in
+                    // 只接管播放器窗口：←/→ 跳转，↑/↓ 吞掉（原先会误触发暂停）。
+                    guard event.window === hostingWindow, playUrl != nil else { return event }
+                    switch event.keyCode {
+                    case 123: seekBy(event.modifierFlags.contains(.shift) ? -30 : -10); return nil
+                    case 124: seekBy(event.modifierFlags.contains(.shift) ? 30 : 10); return nil
+                    case 125, 126: return nil
+                    default: return event
+                    }
+                }
+            }
             showControls()
         }
         .onChange(of: controller.isPlaying) { playing in
-            if playing { keepPausedAfterRecovery = false }
+            if playing {
+                keepPausedAfterRecovery = false
+                lastLineFailure = nil
+            }
         }
         .onChange(of: controller.error) { err in
             // 播放中断流可自动换线；睡醒后的暂停恢复必须等用户点播放/重连。
@@ -375,6 +407,17 @@ struct PlayerView: View {
         }
     }
 
+    /// 方向键跳转：←/→ 10 秒，Shift+←/→ 30 秒；夹在 [0, duration] 内。
+    private func seekBy(_ delta: Double) {
+        let upper = controller.duration.isFinite && controller.duration > 1
+            ? controller.duration - 1
+            : controller.currentTime + delta
+        let target = min(max(0, controller.currentTime + delta), max(0, upper))
+        controller.seek(to: target)
+        showControls()
+        PlayerLog.append("⏩ 方向键跳转 \(Int(delta))s → \(timeString(target))")
+    }
+
     private func timeString(_ t: Double) -> String {
         guard t.isFinite, t >= 0 else { return "0:00" }
         let s = Int(t)
@@ -427,6 +470,11 @@ struct PlayerView: View {
                     resolveError = "播放地址无效: \(resolved)"
                     return
                 }
+                // 预检：Bridge 代理地址先确认能出播放列表。死链、403、以及
+                // “代理把一条上游直链当播放列表返回”的情况在这里立即判定，
+                // 不用等 AVPlayer 的 12 秒兜底。
+                let playable = try await appState.streamPreflight.prepare(url, headers: headers)
+                PlayerLog.append("✔ 播放预检通过（\(playable == url ? "代理播放列表" : "上游直链")）")
                 if recordHistory {
                     await appState.historyStore.addHistory(
                         HistoryRecord(site: site.id, vodId: vod.vod_id,
@@ -434,11 +482,12 @@ struct PlayerView: View {
                                       vodPic: vod.vod_pic, episodeTitle: episode.title,
                                       episodeGroup: episode.group, position: 0))
                 }
-                controller.play(url: url, headers: headers, resumeAt: resumeAt,
+                controller.play(url: playable, headers: headers, resumeAt: resumeAt,
                                 autoPlay: autoPlay, retryWhilePaused: retryWhilePaused)
-                playUrl = url
+                playUrl = playable
             } catch {
                 PlayerLog.append("❌ 解析失败: \(error.localizedDescription)")
+                lastLineFailure = "线路[\(episode.group)]失败：\(error.localizedDescription)"
                 resolveError = "解析失败: \(error.localizedDescription)"
                 // 播放中自动重连可换线路；唤醒后的暂停恢复必须等用户确认，不自动播放其他线路。
                 if autoPlay { await tryNextLine() }
@@ -485,6 +534,7 @@ struct PlayerView: View {
         if !failed.contains(episode.group) { failed.append(episode.group) }
         playerSession.payload?.failedGroups = failed
         PlayerLog.append("⇄ 线路[\(episode.group)]失败（已试 \(failed.count)/\(groups.count) 组）")
+        lastLineFailure = "线路[\(episode.group)]失败（已试 \(failed.count)/\(groups.count)），正在换下一条…"
         guard failed.count < groups.count else {
             resolveError = "无法播放：所有线路均失败（\(groups.count) 组）"
             PlayerLog.append("❌ 所有线路均失败，停止换线路")

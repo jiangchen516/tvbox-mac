@@ -153,6 +153,8 @@ struct DetailView: View {
 
     private func groupPill(_ g: String) -> some View {
         let playing = isPlayingGroup(g)
+        // 本次会话已失败过的线路置灰（点它仍会重试，只是不再让人误以为没试过）
+        let failed = playerSession.payload?.failedGroups.contains(g) ?? false
         return Button {
             selectGroup(g)
         } label: {
@@ -167,7 +169,8 @@ struct DetailView: View {
         .padding(.horizontal, 12).padding(.vertical, 6)
         .background(Capsule().fill(g == currentGroup ? Color.accentColor.opacity(0.2) : .clear))
         .overlay(Capsule().strokeBorder(playing ? Color.green : (g == currentGroup ? Color.accentColor : .clear)))
-        .help(playing ? "正在播放此线路" : "")
+        .help(failed ? "本次会话该线路已失败" : (playing ? "正在播放此线路" : ""))
+        .opacity(failed && !playing ? 0.45 : 1)
         .fixedSize()
     }
 

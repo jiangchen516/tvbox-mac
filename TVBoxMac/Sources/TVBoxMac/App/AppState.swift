@@ -22,6 +22,7 @@ final class AppState: ObservableObject {
     let configStore = ConfigStore()
     let historyStore = HistoryStore()
     let liveClient = LiveClient()
+    let streamPreflight = StreamPreflight()
 
     var hasConfig: Bool { !configs.isEmpty }
 
