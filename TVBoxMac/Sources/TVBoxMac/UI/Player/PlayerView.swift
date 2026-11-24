@@ -3,30 +3,63 @@ import SwiftUI
 import TVBoxMacCore
 #if canImport(AVKit)
 import AVKit
-import AppKit
 import SwiftUI
 
 /// 直接包 AVKit 的 AppKit 视图 AVPlayerView（ObjC），
 /// 绕开 VideoPlayer 背后的 _AVKit_SwiftUI 框架——实测该框架的 Swift 泛型元数据
 /// 在「用 27.0 SDK 编译、跑在 macOS 26.6.2」的组合下 initClassMetadata 直接 abort。
 /// controlsStyle 用 .default：原生控制条自带 播放/暂停、拖进度、音量、全屏、画中画
+/// 子类化 AVPlayerView 处理双击——AVPlayerView 自己消费鼠标事件，
+/// SwiftUI 的 onTapGesture 在它上面收不到（实测双击全屏因此无效）
+final class DoubleClickAVPlayerView: AVPlayerView {
+    var onDoubleClick: (() -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        if event.clickCount >= 2 {
+            onDoubleClick?()
+            return   // 不再传给 AVPlayerView（避免它自身的双击行为干扰）
+        }
+        super.mouseDown(with: event)
+    }
+}
+
 struct PlayerVideoView: NSViewRepresentable {
     let player: AVPlayer
+    var onDoubleClick: (() -> Void) = {}
 
     func makeNSView(context: Context) -> AVPlayerView {
-        let v = AVPlayerView()
+        let v = DoubleClickAVPlayerView()
         v.player = player
         v.controlsStyle = .default
+        v.onDoubleClick = onDoubleClick
         return v
     }
 
     func updateNSView(_ nsView: AVPlayerView, context: Context) {
         if nsView.player !== player { nsView.player = player }
+        (nsView as? DoubleClickAVPlayerView)?.onDoubleClick = onDoubleClick
+    }
+}
+
+/// 捕获视图所在的 NSWindow——SwiftUI Window 场景里 .plain 按钮点击不一定会让
+/// 窗口成为 keyWindow（实测全屏按钮因此失效），拿视图自己的窗口最可靠
+struct WindowAccessor: NSViewRepresentable {
+    let onChange: (NSWindow?) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let v = NSView()
+        DispatchQueue.main.async { [weak v] in onChange(v?.window) }
+        return v
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { onChange(nsView.window) }
     }
 }
 
 struct PlayerView: View {
     @EnvironmentObject var appState: AppState
+    @EnvironmentObject private var playerSession: PlayerSession
 
     let site: Site
     let vod: Vod
@@ -45,6 +78,18 @@ struct PlayerView: View {
     // 控制条自动隐藏：鼠标进入显示，静止 3s（播放中）或移出淡出——与自带播放器同逻辑
     @State private var controlsVisible: Bool = false
     @State private var controlsIdleTask: Task<Void, Never>?
+    @State private var hostingWindow: NSWindow?
+    // 由 NSWindow 原生全屏通知同步，macOS 会将窗口移入独立 Space。
+    @State private var isFullscreen: Bool = false
+    @State private var keepPausedAfterRecovery: Bool = false
+    // 窗口置顶（浮在其他 App 上方）
+    @State private var isAlwaysOnTop: Bool = false
+    @State private var isRestoringAfterWake: Bool = false
+    // 本地事件监听器：AVPlayerView 的内部子视图会先吃掉鼠标事件，
+    // mouseDown 覆盖/手势都收不到双击（实测）——事件分发前拦截最可靠
+    @State private var dblClickMonitor: Any?
+    // 单击播放/暂停需要等双击判定窗口（0.28s），期间不能立刻切换
+    @State private var singleClickWork: DispatchWorkItem?
 
     var body: some View {
         // 控制条在画面下方折叠显隐：显示时画面略缩，隐藏时画面占满——
@@ -70,26 +115,32 @@ struct PlayerView: View {
         .onContinuousHover { phase in
             if case .active = phase { showControls() }   // 鼠标移动刷新显示计时
         }
+        .background(WindowAccessor { window in
+            hostingWindow = window
+            // 明确标为主全屏窗口，macOS 才会为它建立独立的全屏 Space。
+            window?.collectionBehavior.insert(.fullScreenPrimary)
+        })
         .onExitCommand {
-            // Escape：退出 macOS 原生全屏，回到进入前的工作区。
-            guard let window = NSApp.keyWindow,
-                  window.styleMask.contains(.fullScreen) else { return }
-            PlayerLog.append("⛶ Escape 退出全屏")
-            window.toggleFullScreen(nil)
+            // Esc：退出 macOS 原生全屏
+            if isFullscreen { exitFullscreen() }
         }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.willSleepNotification)) { _ in
             guard playUrl != nil else { return }
             controller.savePosition()
-            PlayerLog.append("💤 系统即将睡眠，保存位置 \(timeString(controller.currentTime))（唤醒后重连但保持暂停）")
+            PlayerLog.append("💤 系统即将睡眠，保存位置 \(timeString(controller.currentTime))；唤醒后重连并保持暂停")
         }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
-            // 无论睡前正在播放还是用户手动暂停，都重取流并定位；绝不因唤醒擅自播放。
+            // 唤醒时无论睡前是否在播放，都刷新流并定位；播放必须由用户显式操作。
             guard playUrl != nil else { return }
             let resumeAt = controller.currentTime
+            isRestoringAfterWake = true
             PlayerLog.append("☀️ 系统唤醒，重连并定位到 \(timeString(resumeAt))；等待用户按播放")
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled else {
+                    isRestoringAfterWake = false
+                    return
+                }
                 startResolve(resumeAt: resumeAt, autoPlay: false,
                              recordHistory: false, retryWhilePaused: true)
             }
@@ -102,15 +153,87 @@ struct PlayerView: View {
             startResolve(resumeAt: resumeAt, autoPlay: autoPlay,
                          recordHistory: false, retryWhilePaused: !autoPlay)
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { note in
+            guard let ownWindow = hostingWindow,
+                  let changedWindow = note.object as? NSWindow,
+                  changedWindow === ownWindow else { return }
+            isFullscreen = true
+            PlayerLog.append("⛶ 进入 macOS 原生全屏 Space")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { note in
+            guard let ownWindow = hostingWindow,
+                  let changedWindow = note.object as? NSWindow,
+                  changedWindow === ownWindow else { return }
+            isFullscreen = false
+            PlayerLog.append("⛶ 退出 macOS 原生全屏 Space")
+        }
+        .onAppear {
+            dblClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { event in
+                // 只接管播放器窗口内、命中视频画面本身的点击：
+                // - 标题栏、SwiftUI 控制条、AVKit 原生按钮/进度条全部放行；
+                // - 用点击把后台窗口带到前台时（激活点击）不切换播放。
+                // 窗口在点击前必须已经是 key（即已经在前台）。
+                // 点击后台窗口使其获得焦点时，isKeyWindow 此刻仍为 false → 放行给系统，
+                // 不会切换播放。
+                guard playUrl != nil,
+                      event.window === hostingWindow,
+                      NSApp.isActive,
+                      (event.window?.isKeyWindow ?? false),
+                      Self.isVideoSurfaceClick(event: event) else { return event }
+
+                if event.clickCount >= 2 {
+                    singleClickWork?.cancel()
+                    singleClickWork = nil
+                    DispatchQueue.main.async { toggleFullscreen() }
+                    return nil
+                }
+                if event.clickCount == 1 {
+                    singleClickWork?.cancel()
+                    let work = DispatchWorkItem {
+                        singleClickWork = nil
+                        controller.togglePlayPause()
+                        PlayerLog.append("🖱 单击画面 → \(controller.isPlaying ? "播放" : "暂停")")
+                    }
+                    singleClickWork = work
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.28, execute: work)
+                }
+                return nil
+            }
+        }
+        .onDisappear {
+            singleClickWork?.cancel()
+            singleClickWork = nil
+            if let m = dblClickMonitor { NSEvent.removeMonitor(m) }
+            dblClickMonitor = nil
+        }
         .onAppear {
             let key = "\(site.id)#\(vod.vod_id)#\(episode.group)#\(episode.title)"
             controller.setPositionKey(key)
-            startResolve()
+            if isRestoringAfterWake {
+                PlayerLog.append("▶ 唤醒恢复进行中，跳过 onAppear 自动起播")
+            } else {
+                startResolve()
+            }
             showControls()
+        }
+        .onChange(of: controller.isPlaying) { playing in
+            if playing { keepPausedAfterRecovery = false }
+        }
+        .onChange(of: controller.error) { err in
+            // 播放中断流可自动换线；睡醒后的暂停恢复必须等用户点播放/重连。
+            guard err != nil, !resolving, !keepPausedAfterRecovery else { return }
+            Task { await tryNextLine() }
         }
         .onDisappear {
             controlsIdleTask?.cancel()
             controller.stop()
+            hostingWindow?.level = .normal
+            isAlwaysOnTop = false
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .stopPlayerPlayback)) { _ in
+            // 播放窗口被 X 关闭（willClose）→ 立即停掉 AVPlayer（否则后台继续出声）
+            controller.stop()
+            if isFullscreen { exitFullscreen() }   // 全屏中关窗，恢复菜单栏/Dock
         }
     }
 
@@ -127,6 +250,21 @@ struct PlayerView: View {
         }
     }
 
+    /// 点击是否命中视频画面本身：命中链必须到达 AVPlayerView，
+    /// 且中间不能有 AppKit 控件（原生播放键/进度条）。
+    /// 标题栏、SwiftUI 控制条都不在 AVPlayerView 子树内，会被排除。
+    private static func isVideoSurfaceClick(event: NSEvent) -> Bool {
+        guard let content = event.window?.contentView,
+              let hit = content.hitTest(event.locationInWindow) else { return false }
+        var view: NSView? = hit
+        while let current = view {
+            if current is NSControl { return false }
+            if current is AVPlayerView { return true }
+            view = current.superview
+        }
+        return false
+    }
+
     private func hideControls() {
         controlsIdleTask?.cancel()
         withAnimation(.easeInOut(duration: 0.2)) { controlsVisible = false }
@@ -140,8 +278,10 @@ struct PlayerView: View {
                 Text("正在解析播放地址…").foregroundStyle(.white).font(.callout)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) { toggleFullscreen() }   // 双击全屏/退出
         } else if let url = playUrl {
-            PlayerVideoView(player: controller.player)
+            PlayerVideoView(player: controller.player, onDoubleClick: { toggleFullscreen() })
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .overlay(alignment: .topTrailing) {
                     // 缓冲屏显：画面右上角（已缓冲位置 + 实测网速）
@@ -159,6 +299,24 @@ struct PlayerView: View {
                     .background(.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
                     .padding(8)
                 }
+                .overlay(alignment: .center) {
+                    // 暂停状态提示：单片画面里没有原生暂停图标，单击切换后容易看不出状态。
+                    if controller.isUserPaused, controller.error == nil {
+                        VStack(spacing: 8) {
+                            Image(systemName: "pause.fill")
+                                .font(.system(size: 30, weight: .bold))
+                            Text("已暂停")
+                                .font(.callout)
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 26)
+                        .padding(.vertical, 18)
+                        .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 14))
+                        .allowsHitTesting(false)   // 点击仍落到视频画面，单击即可继续播放
+                        .transition(.opacity.combined(with: .scale(scale: 0.92)))
+                    }
+                }
+                .animation(.easeInOut(duration: 0.15), value: controller.isUserPaused)
                 .overlay(alignment: .bottom) {
                     // 播放失败（黑屏）时显示 AVPlayer 的错误
                     if let err = controller.error {
@@ -169,8 +327,7 @@ struct PlayerView: View {
                             Button("重连") {
                                 controller.error = nil
                                 startResolve(resumeAt: controller.currentTime,
-                                             autoPlay: true,
-                                             recordHistory: false)
+                                             autoPlay: true, recordHistory: false)
                             }
                             .buttonStyle(.bordered)
                         }
@@ -243,13 +400,23 @@ struct PlayerView: View {
                 .font(.caption).foregroundStyle(.white.opacity(0.7))
 
             Button {
-                NSApp.keyWindow?.toggleFullScreen(nil)
+                isAlwaysOnTop.toggle()
+                applyWindowLevel()
             } label: {
-                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                Image(systemName: isAlwaysOnTop ? "pin.fill" : "pin")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(isAlwaysOnTop ? Color.accentColor : .white)
+            .help(isAlwaysOnTop ? "取消置顶" : "窗口置顶（浮在其他应用上方）")
+
+            Button {
+                toggleFullscreen()
+            } label: {
+                Image(systemName: isFullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
             }
             .buttonStyle(.plain)
             .foregroundStyle(.white)
-            .help("全屏")
+            .help(isFullscreen ? "退出全屏" : "全屏")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
@@ -282,25 +449,42 @@ struct PlayerView: View {
         recordHistory: Bool = true,
         retryWhilePaused: Bool = false
     ) {
+        // 全屏切换导致 onAppear 重触发时不重新解析；显式断流/唤醒恢复除外。
+        if resumeAt == nil, playUrl != nil, resolveError == nil {
+            PlayerLog.append("▶ 已在播放，跳过重复解析（视图重新出现）")
+            return
+        }
         if resumeAt != nil { controller.pause() }
+        keepPausedAfterRecovery = !autoPlay
         resolving = true
         resolveError = nil
         playUrl = nil
         PlayerLog.append("▶ 开始解析：\(site.name) \(vod.vod_name) [\(episode.group)] \(episode.title)")
         Task {
+            defer {
+                resolving = false
+                if resumeAt != nil { isRestoringAfterWake = false }
+            }
             do {
-                let headers = HeaderParser.parse(site.header)
+                var headers = HeaderParser.parse(site.header)
                 let resolved = try await appState.client.resolvePlayUrl(site: site, vod: vod, episode: episode)
                 PlayerLog.append("✔ 解析完成 → \(resolved.prefix(150))")
+                // B 站 CDN 要求浏览器 UA + Referer，否则 403
+                if let host = URL(string: resolved)?.host?.lowercased(),
+                   host.contains("bilivideo") || host.contains("bilibili") {
+                    headers["User-Agent"] = ManagedAndroidSpiderClient.bilibiliUserAgent
+                    headers["Referer"] = "https://www.bilibili.com/"
+                }
                 guard let url = URL(string: resolved) else {
                     resolveError = "播放地址无效: \(resolved)"
                     return
                 }
                 if recordHistory {
                     await appState.historyStore.addHistory(
-                        HistoryRecord(site: site.id, vodId: vod.vod_id, vodName: vod.vod_name,
-                                      episodeTitle: episode.title, episodeGroup: episode.group,
-                                      position: 0))
+                        HistoryRecord(site: site.id, vodId: vod.vod_id,
+                                      vodIdString: vod.displayId, vodName: vod.vod_name,
+                                      vodPic: vod.vod_pic, episodeTitle: episode.title,
+                                      episodeGroup: episode.group, position: 0))
                 }
                 controller.play(url: url, headers: headers, resumeAt: resumeAt,
                                 autoPlay: autoPlay, retryWhilePaused: retryWhilePaused)
@@ -308,9 +492,80 @@ struct PlayerView: View {
             } catch {
                 PlayerLog.append("❌ 解析失败: \(error.localizedDescription)")
                 resolveError = "解析失败: \(error.localizedDescription)"
+                // 播放中自动重连可换线路；唤醒后的暂停恢复必须等用户确认，不自动播放其他线路。
+                if autoPlay { await tryNextLine() }
             }
-            resolving = false
         }
+    }
+
+    /// 置顶：把播放窗口提升到浮动层，切到其他 App 时仍可见。
+    private func applyWindowLevel() {
+        guard let window = hostingWindow ?? NSApp.keyWindow else { return }
+        window.level = isAlwaysOnTop ? .floating : .normal
+        PlayerLog.append(isAlwaysOnTop ? "📌 播放窗口置顶" : "📌 取消置顶")
+    }
+
+    /// 使用系统原生全屏。macOS 会将窗口移入新 Space，而不是覆盖当前工作区。
+    private func toggleFullscreen() {
+        guard let win = hostingWindow else { return }
+        win.collectionBehavior.insert(.fullScreenPrimary)
+        win.makeKeyAndOrderFront(nil)
+        win.toggleFullScreen(nil)
+    }
+
+    private func exitFullscreen() {
+        guard let win = hostingWindow,
+              win.styleMask.contains(.fullScreen) else {
+            isFullscreen = false
+            return
+        }
+        win.toggleFullScreen(nil)
+    }
+
+    /// 播放失败自动换线路：同一集（按组内位置）依次尝试其余播放组；
+    /// 已失败的线路记在 payload（跨重建持久），全部试完 → 显示无法播放
+    private func tryNextLine() async {
+        let groups = vod.playGroups
+        guard groups.count > 1,
+              let pos = episodes.firstIndex(where: { $0.id == episode.id }),
+              let gIdx = groups.firstIndex(of: episode.group) else {
+            resolveError = "无法播放：\(resolveError ?? "解析失败")"
+            return
+        }
+        // 记录当前线路失败（每次切换会重建播放器，状态必须存 payload）
+        var failed = playerSession.payload?.failedGroups ?? []
+        if !failed.contains(episode.group) { failed.append(episode.group) }
+        playerSession.payload?.failedGroups = failed
+        PlayerLog.append("⇄ 线路[\(episode.group)]失败（已试 \(failed.count)/\(groups.count) 组）")
+        guard failed.count < groups.count else {
+            resolveError = "无法播放：所有线路均失败（\(groups.count) 组）"
+            PlayerLog.append("❌ 所有线路均失败，停止换线路")
+            return
+        }
+        for offset in 1..<groups.count {
+            let g = groups[(gIdx + offset) % groups.count]
+            guard g != episode.group, !failed.contains(g) else { continue }
+            let list = vod.episodes(group: g)
+            guard pos < list.count else { continue }
+            let cand = list[pos]
+            // 不再按直连过滤：相对路径组（网页播放页）spider 的 play 也能解析，
+            // 解析 + 12s 超时本身就是试错；全直连过滤会让全相对源的换线路没有候选
+            PlayerLog.append("⇄ 尝试[\(g)] \(cand.title)")
+            do {
+                // 先试解析，成功才切（切换会重建播放器并自动播放）
+                _ = try await appState.client.resolvePlayUrl(site: site, vod: vod, episode: cand)
+                playerSession.payload?.episode = cand
+                playerSession.payload?.episodes = list
+                PlayerLog.append("⇄ 已切换到线路[\(g)]")
+                return
+            } catch {
+                if !failed.contains(g) { failed.append(g) }
+                playerSession.payload?.failedGroups = failed
+                PlayerLog.append("⇄ 线路[\(g)]解析失败: \(error.localizedDescription.prefix(90))")
+            }
+        }
+        resolveError = "无法播放：所有线路均失败（\(groups.count) 组）"
+        PlayerLog.append("❌ 所有线路均失败，停止换线路")
     }
 }
 #else

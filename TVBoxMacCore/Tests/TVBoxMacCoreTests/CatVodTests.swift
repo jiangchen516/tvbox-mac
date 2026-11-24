@@ -87,7 +87,7 @@ final class CatVodTests: XCTestCase {
         let mock = MockHTTP()
         let client = makeClient(mock)
         let site = Site(key: "s", name: "s", api: "https://a.com/vod", type: 1)
-        let vod = try await client.detail(site: site, vodId: 101)
+        let vod = try await client.detail(site: site, vodId: "101")
         // detail 请求必须带 ids= 参数
         XCTAssertTrue(mock.requests[0].contains("ids=101"), mock.requests[0])
         XCTAssertEqual(vod.vod_id, 101)

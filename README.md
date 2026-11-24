@@ -71,6 +71,15 @@ bash scripts/make-app-bundle.sh # 出 TVBoxMac.app + zip（ad-hoc 签名）
 - 使用：解压 zip → `xattr -d com.apple.quarantine TVBoxMac.app` → 设置导入
   `https://www.iyouhun.com/tv/dc` → 选站点浏览/播放
 
+### Managed Android Runtime（实验分支）
+
+`feature/managed-android-runtime` 探索在 macOS App 内按需管理 Android/Dex Spider，
+不要求用户连接 Android 设备。当前已完成运行时清单校验、Bridge JSON 合约和可选 Spider
+backend；真实 Runtime/Bridge 二进制、安装器和 `csp_` 端到端执行仍未完成。设计记录见
+[docs/managed-android-runtime.md](docs/managed-android-runtime.md)。
+Bridge 构建脚本固定复用 OKVideoMac 的 GPL Bridge，见 `scripts/build-android-bridge.sh`；
+正式分发前需要完成 GPL 源码和第三方许可证交付。
+
 ## 免责声明
 
 本项目为个人学习/自用软件，不包含任何影视资源。配置源（spider/CatVod 站点）由使用者自行提供，其合法性与可用性由使用者自行负责。

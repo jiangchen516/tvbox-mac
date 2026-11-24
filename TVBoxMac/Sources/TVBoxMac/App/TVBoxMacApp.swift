@@ -15,6 +15,8 @@ struct TVBoxMacApp: App {
                 .environmentObject(appState)
                 .environmentObject(playerSession)
                 .frame(minWidth: 900, minHeight: 560)
+                // 窗口出现时把 appState 交给 AppDelegate（退出时清理模拟器）
+                .onAppear { appDelegate.appState = appState }
         }
         .commands {
             CommandGroup(replacing: .newItem) {}
@@ -35,6 +37,7 @@ struct TVBoxMacApp: App {
 @MainActor
 final class PlayerSession: ObservableObject {
     @Published var payload: PlayerPayload?
+    @Published var isPreparing: Bool = false
 }
 
 /// 播放器窗口的载荷
@@ -42,7 +45,8 @@ struct PlayerPayload: Codable, Hashable {
     let site: Site
     let vod: Vod
     var episode: Episode     // 切集时更新（同窗口换集）
-    let episodes: [Episode]
+    var episodes: [Episode]  // 换线路时同步更新（每组线路的集数列表不同）
+    var failedGroups: [String] = []  // 已失败的线路（换线路跨重建持久，防无限循环）
 }
 
 struct PlayerWindowView: View {
@@ -60,6 +64,13 @@ struct PlayerWindowView: View {
                                session.payload?.episode = newEp
                            })
                     .id(p.episode.id)   // 切集重建播放器（重新解析地址）
+            } else if session.isPreparing {
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text("正在准备播放…")
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 // 系统状态恢复出来的空播放窗口（崩溃/异常退出后残留）→ 自动关掉，
                 // 不留下空白播放窗口
@@ -71,10 +82,24 @@ struct PlayerWindowView: View {
         }
         .frame(minWidth: 720, minHeight: 480)
         .navigationTitle(session.payload?.vod.vod_name ?? "播放")
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { note in
+            // 窗口 X 关闭时 onDisappear 不可靠（实测：窗口关了 AVPlayer 还在放声音），
+            // 用 willCloseNotification 强制停掉播放器
+            if (note.object as? NSWindow)?.identifier?.rawValue == "player"
+                || (note.object as? NSWindow)?.title == session.payload?.vod.vod_name {
+                NotificationCenter.default.post(name: .stopPlayerPlayback, object: nil)
+            }
+        }
     }
 }
 
+extension Notification.Name {
+    static let stopPlayerPlayback = Notification.Name("stopPlayerPlayback")
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    weak var appState: AppState?
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
     }
@@ -82,6 +107,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // 启动标记：日志第一行记录二进制路径/构建时间，便于确认跑的是哪份包
         PlayerLog.logAppLaunch()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        appState?.shutdownManagedRuntime()
     }
 }
 
@@ -94,7 +123,13 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 200, ideal: 240)
         } detail: {
             if appState.hasConfig {
-                if let site = appState.selectedSite {
+                if appState.showHome {
+                    DiscoverView()
+                } else if appState.showHistory {
+                    HistoryView()
+                } else if appState.showAllSearch {
+                    SearchAllView()
+                } else if let site = appState.selectedSite {
                     BrowseView(site: site)
                         .id(site.id)   // 站点切换时重建视图，重置 @State（否则显示旧站点内容）
                 } else {
@@ -126,6 +161,9 @@ struct ContentView: View {
         // 站点切换时记录，重启后自动回到该站点
         .onChange(of: appState.selectedSite?.id) { _ in
             appState.rememberSelectedSite()
+            if let s = appState.selectedSite {
+                PlayerLog.append("🖱 选择站点: \(s.name) api=\(s.api) jar=\(s.jar ?? "-")")
+            }
         }
         .toolbar {
             ToolbarItem {

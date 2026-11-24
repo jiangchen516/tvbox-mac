@@ -338,11 +338,41 @@ public struct LoadedConfig: Codable, Sendable, Identifiable {
         self.config = config
         self.enabled = enabled
     }
+
+    /// 配置级 spider/jar 地址 → 绝对 URL：
+    /// - 剥 ";md5;hash" 校验后缀
+    /// - 相对路径（"./jar/fan.txt"）相对配置 URL 的目录解析成绝对 URL
+    ///   （实测：饭太硬原版配置的 config.spider 就是相对路径，不解析则 Bridge 下载失败）
+    public func resolvedGlobalSpiderURL() -> String? {
+        resolveSpiderURL(config.spider, against: url)
+    }
+}
+
+/// 解析配置级 spider/jar 地址：剥 ";md5;hash" 后缀；相对路径相对配置 URL 的目录解析
+public func resolveSpiderURL(_ raw: String?, against baseURLString: String?) -> String? {
+    guard var raw, !raw.isEmpty else { return nil }
+    if let semi = raw.range(of: ";md5;") { raw = String(raw[..<semi.lowerBound]) }
+    raw = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !raw.isEmpty else { return nil }
+    let lower = raw.lowercased()
+    if lower.hasPrefix("http://") || lower.hasPrefix("https://") { return raw }
+    // 相对路径：相对配置 URL 的目录解析
+    guard let baseStr = baseURLString,
+          let base = URL(string: baseStr),
+          let scheme = base.scheme,
+          scheme == "http" || scheme == "https" else { return raw }
+    var rel = raw
+    while rel.hasPrefix("./") { rel = String(rel.dropFirst(2)) }
+    let resolved = URL(string: rel, relativeTo: URL(string: base.absoluteString)!)
+    return resolved?.absoluteString
 }
 
 // MARK: - CatVod 数据
 public struct Vod: Codable, Sendable, Identifiable, Hashable {
     public var vod_id: Int
+    // 复合字符串 id（FongMi msearch 格式："msearch:###名字###图片@headers"）——
+    // 豆瓣类 Guard 源的 vod_id 是字符串，Int 解析会全变 0 → ForEach 重复 id 只渲染一条
+    public var vodIdString: String?
     public var vod_name: String
     public var type_id: Int?
     public var type_name: String?
@@ -360,7 +390,21 @@ public struct Vod: Codable, Sendable, Identifiable, Hashable {
     public var vod_time: String?
     public var vod_blurb: String?
 
-    public var id: Int { vod_id }
+    // 唯一标识：字符串 id（复合源）优先，否则 数字id+名字（数字 id 可能撞车）
+    public var id: String { vodIdString ?? "\(vod_id)|\(vod_name)" }
+
+    /// 详情/播放接口用的 id（保留源的原始形态：复合字符串或数字）
+    public var displayId: String { vodIdString ?? String(vod_id) }
+
+    /// 显示用的海报地址：剥 FongMi 的 @headers 标记（@Referer=...@User-Agent=...），
+    /// 否则 AsyncImage 解析失败（豆瓣类 Guard 源的图片 URL 都带）
+    public var displayPic: String? {
+        guard let pic = vod_pic, !pic.isEmpty else { return nil }
+        if let r = pic.range(of: "@Referer=") ?? pic.range(of: "@User-Agent=") {
+            return String(pic[..<r.lowerBound])
+        }
+        return pic
+    }
 
     public init(vod_id: Int, vod_name: String, type_id: Int? = nil, type_name: String? = nil,
                 vod_year: String? = nil, vod_area: String? = nil, vod_remarks: String? = nil,
@@ -391,6 +435,7 @@ public struct Vod: Codable, Sendable, Identifiable, Hashable {
     public init(from decoder: Decoder) throws {
         let raw = try LenientJSON.object(from: decoder)
         self.vod_id = LenientJSON.int(raw["vod_id"]) ?? 0
+        self.vodIdString = LenientJSON.str(raw["vod_id"])
         self.vod_name = LenientJSON.str(raw["vod_name"]) ?? "未知"
         self.type_id = LenientJSON.int(raw["type_id"])
         self.type_name = LenientJSON.str(raw["type_name"])
@@ -467,15 +512,18 @@ public extension Vod {
                 url = parts.last ?? item
                 rawTitle = parts.first ?? ""
             } else if let dollarIdx = item.firstIndex(of: "$") {
-                // 组内 $$$ 已拆掉，单个 $ 是 title-url 分隔符（"title$url"）
+                // 组内 $$$ 已拆掉，单个 $ 是 title-url 分隔符（"title$url"）。
+                // url 部分接受任意非空内容——TVBox 约定由 spider 的 play 解释：
+                // http 直连、"/" 相对路径、TOS 对象 key（AppSxGuard 的
+                // "tos-cn-i-...@...@1@@@@1"）等都可能，过滤会让集数全丢
                 let after = String(item[item.index(after: dollarIdx)...])
-                if after.lowercased().hasPrefix("http") {
+                if !after.trimmingCharacters(in: .whitespaces).isEmpty {
                     rawTitle = String(item[..<dollarIdx])
                     url = after
                 }
             }
             let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard trimmed.lowercased().hasPrefix("http") else { continue }
+            guard !trimmed.isEmpty else { continue }
             let t = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
             let title = t.isEmpty ? "第\(result.count + 1)集" : t
             result.append(Episode(title: title, url: trimmed, group: group, index: result.count))
@@ -505,7 +553,7 @@ public protocol VodFetching: Sendable {
     func categories(site: Site) async throws -> [String]
     func browse(site: Site, category: String?, page: Int) async throws -> VodPage
     func search(site: Site, keyword: String, page: Int) async throws -> VodPage
-    func detail(site: Site, vodId: Int) async throws -> Vod
+    func detail(site: Site, vodId: String) async throws -> Vod
     func resolvePlayUrl(site: Site, vod: Vod, episode: Episode) async throws -> String
 }
 

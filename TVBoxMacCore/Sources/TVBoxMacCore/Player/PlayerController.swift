@@ -15,8 +15,8 @@ public final class PlayerController: ObservableObject {
     @Published public var networkSpeed: Double = 0   // 实测下载吞吐（bits/s，accessLog.observedBitrate）
     @Published public var rate: Float = 1.0
     @Published public var error: String?
-    @Published public private(set) var reconnectRequestID: Int = 0
-    @Published public private(set) var reconnectAutoPlay: Bool = false
+    /// 用户主动暂停（区别于启动缓冲时的非播放状态）
+    @Published public private(set) var isUserPaused: Bool = false
 
     public private(set) var player: AVPlayer
     private var timeObserver: Any?
@@ -29,10 +29,15 @@ public final class PlayerController: ObservableObject {
     private let maxAutomaticReconnectAttempts = 3
     private var playbackIntent = false
     private var reconnectWhilePaused = false
+    private var lastTimeControlStatus: AVPlayer.TimeControlStatus = .paused
+    private var hasPlayedOnce = false
+    @Published public private(set) var reconnectRequestID: Int = 0
+    @Published public private(set) var reconnectAutoPlay: Bool = false
     private var lastSpeedRead: TimeInterval = 0   // 网速读取限频（5s 一次，降低对加载管线的干扰）
     private var lastBufferingState: Bool?
     private var playStartCAC: TimeInterval = 0    // 初始加载超时检测（分段 CDN 无响应）
     private var initialTimeoutFired: Bool = false
+    private var initialTimeoutWork: DispatchWorkItem?
     private var logObservers: [NSObjectProtocol] = []
     private var statusObservation: NSKeyValueObservation?
     private var tcObservation: NSKeyValueObservation?
@@ -72,11 +77,30 @@ public final class PlayerController: ObservableObject {
         }
         tcObservation = player.observe(\.timeControlStatus, options: [.new]) { [weak self] p, _ in
             let status = p.timeControlStatus
+            let item = p.currentItem
             PlayerLog.append("timeControlStatus=\(status.rawValue) t=\(PlayerLog.safeInt(p.currentTime().seconds))s")
-            // 原生 AVPlayerView 的播放/暂停控制不经过自定义按钮，跟踪真实状态，
-            // 区分手动暂停与播放中断；睡眠唤醒另行强制保持暂停。
+            if status != self?.lastTimeControlStatus {
+                // KVO 回调线程不确定，所有 @Published 状态统一切回主线程。
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, status != self.lastTimeControlStatus else { return }
+                    self.lastTimeControlStatus = status
+                    // 从暂停恢复到播放时重置停滞计时：否则暂停前的时间戳
+                    // 会让“刚恢复、正在缓冲”被误判为断流并触发重连。
+                    if status == .playing {
+                        self.lastPlaybackProgressCAC = CACurrentMediaTime()
+                        self.hasPlayedOnce = true
+                        self.isUserPaused = false
+                    } else if status == .paused, self.hasPlayedOnce,
+                              self.player.currentItem?.error == nil {
+                        // 只有播放过之后出现的 paused 才算“用户暂停”；
+                        // 首次加载/缓冲时的非播放状态不算。
+                        self.isUserPaused = true
+                    }
+                }
+            }
+            // 原生 AVPlayerView 的播放/暂停控制不经过 SwiftUI 按钮，借助 KVO
+            // 同步播放意图，供停滞重连判断；系统唤醒恢复始终显式保持暂停。
             if status == .playing || status == .paused {
-                let item = p.currentItem
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
                     self.isPlaying = status == .playing
@@ -84,7 +108,6 @@ public final class PlayerController: ObservableObject {
                         self.playbackIntent = true
                         self.reconnectWhilePaused = false
                     } else if item?.error == nil && item?.isPlaybackLikelyToKeepUp != false {
-                        // 缓冲不足/发生错误导致的暂停不是用户主动暂停，保留自动恢复意图。
                         self.playbackIntent = false
                         self.reconnectWhilePaused = false
                     }
@@ -139,7 +162,7 @@ public final class PlayerController: ObservableObject {
                 }
             }
             // 通用断流重试：播放中卡住自动重连并续播；睡醒后的 paused-preroll
-            // 无法取得缓冲也会重连，但 reconnectAutoPlay=false，绝不擅自开始播放。
+            // 无法取得缓冲也会重连，但不会擅自开始播放。
             if let item = s.player.currentItem {
                 let waiting = s.player.timeControlStatus == .waitingToPlayAtSpecifiedRate
                     || item.status == .failed
@@ -158,16 +181,6 @@ public final class PlayerController: ObservableObject {
                s.error != err.localizedDescription {
                 s.error = err.localizedDescription
                 PlayerLog.append("❌ player.error: \(err.localizedDescription)")
-            }
-            // 初始加载超时：15 秒内没 readyToPlay 且没缓冲到任何数据——
-            // 分段 CDN 无响应（灰产 CDN 常态），明确提示而不是无限转圈
-            if !s.initialTimeoutFired,
-               CACurrentMediaTime() - s.playStartCAC >= 15,
-               s.player.currentItem?.status != .readyToPlay,
-               s.bufferedTime == 0 {
-                s.initialTimeoutFired = true
-                PlayerLog.append("❌ 初始加载超时：15s 无数据（分段服务器无响应）")
-                s.error = "流服务器 15 秒无数据（分段 CDN 无响应），请换一集/换线路或稍后再试"
             }
         }
     }
@@ -189,7 +202,24 @@ public final class PlayerController: ObservableObject {
         PlayerLog.append("🔁 播放停滞，自动重连 \(automaticReconnectAttempts)/\(maxAutomaticReconnectAttempts)，从 \(PlayerLog.safeInt(currentTime))s 继续（自动播放=\(reconnectAutoPlay)）")
     }
 
-    /// 起播；headers 通过 AVURLAsset 的 httpHeader 传入（部分源需 UA/Referer）
+    /// 初始加载超时：独立定时器（不能用周期时间 observer——AVPlayer 卡死在 t=0 时
+    /// 时间不前进，observer 不触发，实测超时永不执行 → 换线路永不启动）
+    private func scheduleInitialTimeout() {
+        initialTimeoutWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let s = self,
+                  !s.initialTimeoutFired,
+                  s.player.currentItem?.status != .readyToPlay,
+                  s.bufferedTime == 0 else { return }
+            s.initialTimeoutFired = true
+            PlayerLog.append("❌ 初始加载超时：12s 无数据（分段 CDN 无响应）→ 触发换线路")
+            s.error = "流服务器 12 秒无数据（分段 CDN 无响应），自动换线路中…"
+        }
+        initialTimeoutWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 12, execute: work)
+    }
+
+    /// 重建媒体项；resumeAt 用于断流重连，autoPlay=false 用于睡眠唤醒后保持暂停。
     public func play(
         url: URL,
         headers: [String: String] = [:],
@@ -202,8 +232,6 @@ public final class PlayerController: ObservableObject {
         PlayerLog.append("▶ play \(url.absoluteString) headers=\(headers.isEmpty ? "无" : "\(headers.count) 项")")
         var opts: [String: Any] = [:]
         if !headers.isEmpty {
-            // 用字面量键：AVFoundation 的 option-key 常量值恒等于其名称，
-            // 绕开 C 常量在部分工具链下导入异常的问题
             opts["AVURLAssetHTTPHeaderFieldKey"] = headers
         }
         let asset = AVURLAsset(url: url, options: opts)
@@ -211,7 +239,8 @@ public final class PlayerController: ObservableObject {
         player.replaceCurrentItem(with: item)
         playStartCAC = CACurrentMediaTime()
         initialTimeoutFired = false
-        // 断点续播：唤醒恢复时优先用睡眠前精确位置，否则读取常规自动保存位置。
+        scheduleInitialTimeout()
+
         let savedPosition: Double?
         if let resumeAt {
             savedPosition = resumeAt
@@ -226,6 +255,9 @@ public final class PlayerController: ObservableObject {
         if resumeAt == nil { automaticReconnectAttempts = 0 }
         playbackIntent = autoPlay
         reconnectWhilePaused = retryWhilePaused && !autoPlay
+        hasPlayedOnce = false
+        isUserPaused = false
+
         if autoPlay {
             player.play()
             if rate != 1 { player.rate = rate }
@@ -281,6 +313,7 @@ public final class PlayerController: ObservableObject {
     public func setPositionKey(_ key: String) { positionKey = key }
 
     public func pause() {
+        isUserPaused = true
         playbackIntent = false
         reconnectWhilePaused = false
         player.pause()
@@ -288,8 +321,13 @@ public final class PlayerController: ObservableObject {
     }
 
     public func resume() {
+        isUserPaused = false
         playbackIntent = true
         reconnectWhilePaused = false
+        // 暂停期间时间戳会变旧；恢复播放时重新计时，避免刚恢复就误判断流重连。
+        lastObservedPlaybackTime = currentTime
+        lastPlaybackProgressCAC = CACurrentMediaTime()
+        automaticReconnectAttempts = 0
         player.play()
         if rate != 1 { player.rate = rate }
         isPlaying = true
@@ -331,9 +369,12 @@ public final class PlayerController: ObservableObject {
 
     public func stop() {
         PlayerLog.append("⏹ stop t=\(PlayerLog.safeInt(currentTime))s")
+        isUserPaused = false
+        hasPlayedOnce = false
         playbackIntent = false
         reconnectWhilePaused = false
         saveTask?.cancel()
+        initialTimeoutWork?.cancel()
         savePosition()
         player.pause()
         player.replaceCurrentItem(with: nil)
@@ -354,6 +395,7 @@ public final class PlayerController {
     public var duration: Double { 0 }
     public var rate: Float { 1.0 }
     public var error: String? { nil }
+    public var isUserPaused: Bool { false }
 
     public init() {}
     public func play(url: URL, headers: [String: String] = [:], resumeAt: Double? = nil, autoPlay: Bool = true, retryWhilePaused: Bool = false) {}

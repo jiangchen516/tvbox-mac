@@ -17,6 +17,7 @@ struct BrowseView: View {
     @State private var searchKeyword: String = ""
     @State private var selectedVod: Vod?
     @State private var isSearching: Bool = false
+    @State private var loadingNextPage: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -29,12 +30,6 @@ struct BrowseView: View {
         .navigationTitle(site.name)
         .task(id: currentCategory) {
             if !isSearching { await loadPage(1) }
-        }
-        .task(id: searchKeyword) {
-            if !searchKeyword.isEmpty {
-                isSearching = true
-                await loadPage(1)
-            }
         }
         .sheet(item: $selectedVod) { vod in
             DetailView(site: site, vod: vod)
@@ -99,7 +94,7 @@ struct BrowseView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 16)], spacing: 20) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 120, maximum: 150), spacing: 16)], spacing: 20) {
                     ForEach(vods) { vod in
                         VodCard(vod: vod)
                             .onTapGesture { selectedVod = vod }
@@ -112,18 +107,27 @@ struct BrowseView: View {
                         .onAppear { Task { await loadNextPage() } }
                 }
             }
-            .refreshable { await loadPage(1) }
+            .refreshable {
+                await appState.client.invalidateBrowseCache(
+                    site: site,
+                    category: currentCategory.isEmpty ? nil : currentCategory
+                )
+                await loadPage(1)
+            }
         }
     }
 
     private func loadPage(_ p: Int) async {
         loading = true
         errorMessage = nil
-        defer { loading = false }
+        defer {
+            // 旧 task 被切换取消时，不要把新 task 的 loading 状态清掉。
+            if !Task.isCancelled { loading = false }
+        }
         do {
             // 首次加载先取分类（CatVod 的 t= 需要 type_id，分类名需经 API 的 class 映射）
             if categories.isEmpty {
-                categories = (try? await appState.client.categories(site: site)) ?? []
+                categories = try await appState.client.categories(site: site)
                 if currentCategory.isEmpty, let first = categories.first, !first.isEmpty {
                     currentCategory = first
                     return   // 分类选择已触发 task 重载，跳过本次空分类查询（避免全量列表闪一下又清空）
@@ -138,14 +142,23 @@ struct BrowseView: View {
             vods = p == 1 ? result.list : vods + result.list
             page = p
             pagecount = result.pagecount
+            PlayerLog.append("📄 浏览 \(site.name) 分类=\(currentCategory.isEmpty ? "-" : currentCategory) 页=\(p) → \(result.list.count) 条（pagecount=\(result.pagecount)）")
+        } catch is CancellationError {
+            // 快速切站/切分类会正常取消旧请求，不应显示“加载失败”。
+            return
+        } catch let error as URLError where error.code == .cancelled {
+            return
         } catch {
+            guard !Task.isCancelled else { return }
             errorMessage = "加载失败: \(error.localizedDescription)"
             showErrorMessage = true
         }
     }
 
     private func loadNextPage() async {
-        guard page < pagecount else { return }
+        guard page < pagecount, !loadingNextPage else { return }
+        loadingNextPage = true
+        defer { loadingNextPage = false }
         await loadPage(page + 1)
     }
 }
@@ -155,16 +168,10 @@ struct VodCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            AsyncImage(url: URL(string: vod.vod_pic ?? "")) { phase in
-                if case .success(let image) = phase {
-                    image.resizable().aspectRatio(contentMode: .fill)
-                } else {
-                    Rectangle().fill(.quaternary)
-                        .overlay(Image(systemName: "film").foregroundStyle(.tertiary))
-                }
-            }
-            .aspectRatio(2/3, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            // vod_pic 可能携带 @Referer/@User-Agent，必须走 RemoteImage 解析请求头和缓存。
+            RemoteImage(rawPic: vod.vod_pic)
+                .frame(width: 140, height: 210)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
 
             Text(vod.vod_name)
                 .font(.callout).lineLimit(2)
