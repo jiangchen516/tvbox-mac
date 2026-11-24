@@ -1,6 +1,6 @@
 # TVBox for macOS — 开发计划
 
-> 目标：在 macOS 上尽量完整复刻 TVBox 的点播功能，兼容 iyouhun 等
+> 目标：在 macOS 上尽量完整复刻 TVBox 的点播功能，兼容第三方
 > TVBox 配置/源仓生态（含聚合列表、CatVod 源、JS Spider 源、parse 解析、
 > 去广告规则）。技术栈：Swift + SwiftUI + AVFoundation + JavaScriptCore。
 
@@ -20,7 +20,7 @@
 
 ### L1 核心点播（第一优先）
 - [ ] 加载本地/远程配置文件（TVBox 标准 JSON）
-- [ ] 加载**聚合列表**（`{"urls":[{name,url}...]}` 格式，iyouhun.com/tv/dc 即此格式）
+- [ ] 加载**聚合列表**（`{"urls":[{name,url}...]}` 格式）
   → 展开成多个配置源
 - [ ] 站点（站点数组 `urls[]`）管理：启用/禁用、排序
 - [ ] **CatVod 标准接口**：`/api.php/provide/vod/` 的
@@ -81,7 +81,7 @@ TVBoxMac/
 ```
 
 ### 关键设计决策
-1. **协议兼容优先于 UI 还原**：凡是"能不能用 iyouhun 的源"，看协议层。
+1. **协议兼容优先于 UI 还原**：凡是"能不能用用户的源"，看协议层。
    CatVod 是纯 HTTP+JSON，优先做通；JS Spider 是深水区，第二梯队。
 2. **Spider 用 JavaScriptCore**（macOS 系统自带，无需打包 JS 引擎）。
    用 JSContext 注入 TVBox spider API 面；网络调用走桥接回 Swift
@@ -97,9 +97,9 @@ TVBoxMac/
 | 里程碑 | 内容 | 验收标准 | 预计 |
 |---|---|---|---|
 | M0 | 项目骨架 + CI 跑通 | GitHub Actions macOS 构建出 .app | 第 1 天 |
-| M1 | 配置加载（含聚合列表）+ CatVod 浏览 | iyouhun/tv/dc 导入成功，能看到站点/分类/列表 | 第 1~2 周 |
-| M2 | 详情页 + 选集 + 起播 + 续播 | 从 iyouhun 任选一部剧能看完 | 第 3~4 周 |
-| M3 | parse 规则 + 去广告 + 多播放组 | 主流源（饭太硬等）播放成功率 ≥ 安卓端体感 | 第 5~6 周 |
+| M1 | 配置加载（含聚合列表）+ CatVod 浏览 | 导入用户配置成功，能看到站点/分类/列表 | 第 1~2 周 |
+| M2 | 详情页 + 选集 + 起播 + 续播 | 任选一部剧能看完 | 第 3~4 周 |
+| M3 | parse 规则 + 去广告 + 多播放组 | 主流源播放成功率 ≥ 安卓端体感 | 第 5~6 周 |
 | M4 | JS Spider 引擎 | 抽 5 个用自定义 JS 源的站点可搜索可播放 | 第 7~9 周 |
 | M5 | 多源聚合搜索 + 收藏 + 历史完善 | 跨站搜索合并、收藏/历史可用 | 第 10 周 |
 | M6 | 直播 + 长尾 + 打磨 | IPTV 可看；打包签名说明完善 | 之后 |
@@ -108,8 +108,8 @@ TVBoxMac/
 
 | 风险 | 对策 |
 |---|---|
-| 部分源强依赖 spider 的冷门 API，JSC 桥接不完 | 先做 API 覆盖表（统计 iyouhun 各源用到的 spider API），按需实现；兜底：标记"不支持"并提示 |
-| 反爬：源站对非安卓 UA 拦（iyouhun 服务器端已验证会拦部分 IP/UA） | 可配置 UA/headers；用户端网络一般不受限，重点测用户实网 |
+| 部分源强依赖 spider 的冷门 API，JSC 桥接不完 | 先做 API 覆盖表（统计各源用到的 spider API），按需实现；兜底：标记"不支持"并提示 |
+| 反爬：源站对非安卓 UA 拦（部分源站已验证会拦部分 IP/UA） | 可配置 UA/headers；用户端网络一般不受限，重点测用户实网 |
 | macOS 无 Xcode 在服务器 → 编译全靠 CI，迭代慢 | 每 PR 必过 CI 构建；测试脚本（Swift Testing）在 CI 跑；UI 逻辑与 UI 分层，逻辑可测 |
 | AVFoundation 对个别编码（如部分 HEVC 硬解）表现差异 | 播放失败时回退软解；记录失败 case 到 issue |
 | 法律风险（灰色源） | 代码只兼容协议不内置任何源；README 声明用户自担源合法性 |

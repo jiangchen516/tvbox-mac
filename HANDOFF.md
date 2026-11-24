@@ -108,11 +108,11 @@ swift run TVBoxMac               # 或直接跑
 ## 4. 遗留问题（按优先级）
 
 ### 4.1 P0：IDN 中文域名站点请求失败 ✅ 代码已修复（方案 b）
-- **现象**：导入 iyouhun 聚合后，点任何 api 为中文域名的站点
-  （`www.饭太硬.net` 等，聚合源里占多数）→「加载失败：网络错误：不支持的URL」
+- **现象**：导入含中文域名站点的聚合配置后，点这些站点
+  （聚合源里占多数）→「加载失败：网络错误：不支持的URL」
 - **根因**（已定位）：`URL(string:)` 能构造非 ASCII host，但 **URLSession
   拒绝发送**，报 `URLError` "unsupported URL"。中文域名必须先转 Punycode
-  （`www.饭太硬.net` → `www.xn--sss604efuw.net`）
+  （中文域名 → Punycode）
 - **已做（方案 b，2026-09-17）**：
   1. 实测确认：`applyingTransform("IDNA")` **本机也返回 nil**（不只 CI runner），
      方案 a 不成立。
@@ -126,16 +126,16 @@ swift run TVBoxMac               # 或直接跑
   5. 验证：与 Python stdlib 标准答案对拍 **22/22**（含连字符 label、
      多 label、分隔符、urlString/url 各入口）；核心库 release 编译通过。
 - **下一步**：push → macOS CI 全绿 → 装完整版 Xcode 后本机出包实测
-  （导入 iyouhun → 点中文域名站点 → 能出分类/列表即通）
+  （导入含中文域名站点的配置 → 能出分类/列表即通）
 
 ### 4.2 P1：单仓源导入失败「配置不是合法JSON」
-- **现象**：导入 `http://www.饭太硬.net/tv` 报 `配置不是合法JSON`
+- **现象**：导入某个配置地址报 `配置不是合法JSON`
 - **排查到的**：服务器（欧洲 IP）curl 该地址各种姿势都返回 **360 反爬导航页**
   （15KB HTML），拿不到真 JSON。你 Mac 上大概率能拿到真数据，所以
   HEAD 里已把报错改成带**响应开头 80 字符**——用 HEAD 构建的包再导一次，
   把红色报错原文发出来即可定位（HTML=反爬拦截要换 UA/换入口；
   真 JSON 但结构不符=补解析分支）
-- 顺带注意：该站正确入口可能是 `https://www.饭太硬.net/tv`（https）
+- 顺带注意：该站正确入口可能需要 https
   或 `/api.php/provide/vod` 形式，可在浏览器里先打开确认返回的是 JSON
 
 ### 4.3 P2：UI 细节待实测
