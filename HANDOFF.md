@@ -1,6 +1,6 @@
 # TVBoxMac 交接文档（当前状态）
 
-> 更新时间：2026-11-24 ｜ 分支：`main` ｜ 版本：0.2.1 ｜ 测试：121/121
+> 更新时间：2026-11-25 ｜ 分支：`main` ｜ 版本：0.3.0 ｜ 测试：122/122
 > 仓库已公开：https://github.com/jiangchen516/tvbox-mac
 > 本文件是给“新会话/新接手者”的入口；依赖细节以 `README.md` 为准。
 
@@ -141,7 +141,7 @@ docs/managed-android-runtime.md  模拟器方案与踩坑记录
 5. **直播限制**：只支持 `lives` 的在线 m3u/txt 列表或内联 `channels`；spider 动态直播、EPG 节目单、
    回看与频道台标未做；非 http(s) 地址（如 `proxy://`）只提示不支持。
 6. **未做**：小程序框架、网盘/登录类源、正式签名与 Release 分发。
-7. **版本号仍是 0.2.1**：合入大量功能后可考虑 bump 到 0.3.0 并打 tag。
+7. **版本 0.3.0**：已 bump + 打 tag `v0.3.0`；CI 出包见 `.github/workflows/build-macos.yml`。
 
 ---
 

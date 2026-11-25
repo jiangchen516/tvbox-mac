@@ -6,7 +6,7 @@
 ## 项目
 
 - macOS 原生 TVBox：Swift + SwiftUI + AVFoundation + JavaScriptCore，**无第三方 Swift 包**。
-- 当前版本 `0.2.1`；测试基线以 `HANDOFF.md` 为准（全 mock、不联网）。
+- 当前版本 `0.3.0`；测试基线以 `HANDOFF.md` 为准（全 mock、不联网）。
 
 ## 每次代码改动后必须依次通过
 
