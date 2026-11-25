@@ -47,6 +47,9 @@ struct PlayerView: View {
     @State private var subtitleCues: [SubtitleCue] = []
     @State private var currentCue: SubtitleCue?
     @State private var subtitleError: String?
+    // 源内置字幕（解析结果里的 subtitle 字段）
+    @State private var sourceSubtitleURL: URL?
+    @State private var subtitleHeaders: [String: String] = [:]
     // 只在真正起播后写观看历史：解析成功但随后失败/换线的线路不记入历史
     @State private var shouldRecordHistory = false
     @State private var historyRecorded = false
@@ -442,6 +445,11 @@ struct PlayerView: View {
             .tint(.white)
 
             Menu {
+                if let source = sourceSubtitleURL {
+                    Button("从源加载字幕") {
+                        Task { await loadSourceSubtitle(source, headers: subtitleHeaders, silent: false) }
+                    }
+                }
                 Button("选择字幕文件…") { pickSubtitle() }
                 if !subtitleCues.isEmpty {
                     Button("关闭字幕") {
@@ -519,6 +527,18 @@ struct PlayerView: View {
         }
         guard panel.runModal() == .OK, let url = panel.url else { return }
         loadSubtitle(url)
+    }
+
+    private func loadSourceSubtitle(_ url: URL, headers: [String: String], silent: Bool) async {
+        do {
+            let cues = try await appState.subtitleLoader.cues(from: url, headers: headers)
+            subtitleCues = cues
+            currentCue = SRTParser.cue(at: controller.currentTime, in: cues)
+            PlayerLog.append("📝 源字幕已加载（\(cues.count) 条）")
+        } catch {
+            PlayerLog.append("📝 源字幕加载失败: \(error.localizedDescription)")
+            if !silent { subtitleError = error.localizedDescription }
+        }
     }
 
     private func loadSubtitle(_ url: URL) {
@@ -634,7 +654,8 @@ struct PlayerView: View {
             }
             do {
                 var headers = HeaderParser.parse(site.header)
-                let resolved = try await appState.client.resolvePlayUrl(site: site, vod: vod, episode: episode)
+                let resolution = try await appState.client.resolvePlay(site: site, vod: vod, episode: episode)
+                let resolved = resolution.url
                 PlayerLog.append("✔ 解析完成 → \(resolved.prefix(150))")
                 // B 站 CDN 要求浏览器 UA + Referer，否则 403
                 if let host = URL(string: resolved)?.host?.lowercased(),
@@ -654,6 +675,12 @@ struct PlayerView: View {
                 controller.play(url: playable, headers: headers, resumeAt: resumeAt,
                                 autoPlay: autoPlay, retryWhilePaused: retryWhilePaused)
                 playUrl = playable
+                // 源内置字幕：自动加载（失败只记日志，不打扰播放）
+                subtitleHeaders = headers
+                sourceSubtitleURL = resolution.subtitle.flatMap { URL(string: $0) }
+                if let sub = sourceSubtitleURL {
+                    Task { await loadSourceSubtitle(sub, headers: headers, silent: true) }
+                }
             } catch {
                 PlayerLog.append("❌ 解析失败: \(error.localizedDescription)")
                 lastLineFailure = "线路[\(episode.group)]失败：\(error.localizedDescription)"

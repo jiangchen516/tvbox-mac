@@ -54,3 +54,56 @@ final class SubtitleTests: XCTestCase {
         XCTAssertEqual(SRTParser.cue(at: 6.9, in: cues)?.text, "b")
     }
 }
+
+extension SubtitleTests {
+    func testVTTWithHeaderAndShortTimes() {
+        let vtt = """
+        WEBVTT
+
+        NOTE 这是注释
+
+        00:01.000 --> 00:03.500 align:start
+        <c>你好</c>
+
+        01:00:02.000 --> 01:00:04.000
+        第二句
+        """
+        let cues = SubtitleText.parse(vtt)
+        XCTAssertEqual(cues.count, 2)
+        XCTAssertEqual(cues[0].text, "你好")
+        XCTAssertEqual(cues[0].start, 1, accuracy: 0.001)
+        XCTAssertEqual(cues[1].start, 3602, accuracy: 0.001)
+    }
+
+    func testAutoDetectSRT() {
+        let srt = "1\n00:00:01,000 --> 00:00:02,000\n字幕\n"
+        XCTAssertEqual(SubtitleText.parse(srt).first?.text, "字幕")
+    }
+
+    func testLoaderParsesVTTFromHTTP() async throws {
+        struct Stub: HTTPFetching {
+            func get(_ url: URL, headers: [String: String]?) async throws -> (data: Data, response: HTTPResponse) {
+                (Data("WEBVTT\n\n00:00.500 --> 00:02.000\n在线\n".utf8),
+                 HTTPResponse(url: url, statusCode: 200))
+            }
+        }
+        let cues = try await SubtitleLoader(http: Stub()).cues(from: URL(string: "https://x.example/a.vtt")!)
+        XCTAssertEqual(cues.first?.text, "在线")
+    }
+
+    func testLoaderReportsHTTPError() async {
+        struct Stub: HTTPFetching {
+            func get(_ url: URL, headers: [String: String]?) async throws -> (data: Data, response: HTTPResponse) {
+                (Data(), HTTPResponse(url: url, statusCode: 403))
+            }
+        }
+        do {
+            _ = try await SubtitleLoader(http: Stub()).cues(from: URL(string: "https://x.example/a.srt")!)
+            XCTFail("应报 HTTP 403")
+        } catch let error as SubtitleLoadError {
+            guard case .httpStatus(403) = error else { return XCTFail("错误类型不对: \(error)") }
+        } catch {
+            XCTFail("错误类型不对: \(error)")
+        }
+    }
+}

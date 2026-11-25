@@ -183,6 +183,11 @@ public actor ManagedAndroidSpiderClient: VodFetching {
     }
 
     public func resolvePlayUrl(site: Site, vod: Vod, episode: Episode) async throws -> String {
+        try await resolvePlay(site: site, vod: vod, episode: episode).url
+    }
+
+    /// 解析播放地址 + 源内置字幕（subtitle 字段）。
+    public func resolvePlay(site: Site, vod: Vod, episode: Episode) async throws -> PlayResolution {
         let data = try await call(operation: "play", site: site, arguments: [
             "vod": try jsonValue(vod),
             "episode": try jsonValue(episode)
@@ -214,7 +219,7 @@ public actor ManagedAndroidSpiderClient: VodFetching {
             PlayerLog.append("🌐 parse=1：jx 页面，走 webview 解析")
             if let page = URL(string: rawURL) {
                 let real = try await WebViewParser.shared.resolve(page)
-                return real.absoluteString
+                return PlayResolution(url: real.absoluteString, subtitle: nil)
             }
         }
         // 代理形状（url 指向 bridge 的媒体会话 /proxy/media/<uuid>）：这是桥的
@@ -234,7 +239,15 @@ public actor ManagedAndroidSpiderClient: VodFetching {
             }
         }
         PlayerLog.append("▶ play URL 改写: \(rawURL.prefix(80)) → \(hostPlayURL.prefix(80))")
-        return hostPlayURL
+        // 源内置字幕：与播放地址同样把 guest 端口改写为宿主机端口
+        var subtitleURL = response.bestSubtitle
+        if let sub = subtitleURL {
+            subtitleURL = sub.replacingOccurrences(
+                of: "127.0.0.1:\(guestProxyPort)",
+                with: "127.0.0.1:\(hostProxyPort)")
+            PlayerLog.append("📝 源内置字幕: \(subtitleURL?.prefix(90) ?? "-")")
+        }
+        return PlayResolution(url: hostPlayURL, subtitle: subtitleURL)
     }
 
     /// B 站剧集 url 形如 "avid+cid+…"；非 B 站 DASH 没有 mp4 回退可试。
@@ -524,10 +537,24 @@ private struct BridgePlayResponse: Decodable {
     let danmaku: String?
     // parse=1 → 返回的是 jx 解析页（网页 URL），需要 webview 解析真流
     let parse: JSONValue?
+    // 源内置字幕（CatVod/FongMi playerContent 的 subtitle 字段），常见 srt/vtt
+    let subtitle: JSONValue?
 
     /// 兼容两种形态：普通字符串 url，或 [画质名, 地址, 画质名, 地址...] 数组
     var bestURL: String? {
         switch url {
+        case .string(let value):
+            return value.isEmpty ? nil : value
+        case .array(let items):
+            return items.compactMap(\.stringValue)
+                .first { $0.lowercased().hasPrefix("http") }
+        default:
+            return nil
+        }
+    }
+
+    var bestSubtitle: String? {
+        switch subtitle {
         case .string(let value):
             return value.isEmpty ? nil : value
         case .array(let items):

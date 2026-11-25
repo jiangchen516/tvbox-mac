@@ -150,6 +150,15 @@ public actor TVBoxClient {
         try await client(for: site).resolvePlayUrl(site: site, vod: vod, episode: episode)
     }
 
+    /// 解析播放地址，并尽量带上源内置字幕（只有托管 Android Spider 有这个字段）。
+    public func resolvePlay(site: Site, vod: Vod, episode: Episode) async throws -> PlayResolution {
+        if let managedAndroidSpider, site.type == 3 || site.api.lowercased().hasPrefix("csp_") {
+            return try await managedAndroidSpider.resolvePlay(site: site, vod: vod, episode: episode)
+        }
+        return PlayResolution(url: try await client(for: site)
+            .resolvePlayUrl(site: site, vod: vod, episode: episode), subtitle: nil)
+    }
+
     /// 跨站聚合搜索（M5）
     public func aggregateSearch(keyword: String, sites: [Site]?, page: Int = 1) async -> [(site: Site, page: VodPage)] {
         let targets = sites ?? allSites()
@@ -160,6 +169,17 @@ public actor TVBoxClient {
             }
         }
         return out
+    }
+}
+
+/// 播放解析结果：地址 + 可选的字幕地址（源内置）
+public struct PlayResolution: Sendable, Equatable {
+    public let url: String
+    public let subtitle: String?
+
+    public init(url: String, subtitle: String? = nil) {
+        self.url = url
+        self.subtitle = subtitle
     }
 }
 

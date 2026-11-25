@@ -48,18 +48,105 @@ public enum SRTParser {
     }
 
     static func parseTime(_ raw: String) -> Double? {
+        // VTT 行尾可能带位置设置（align:start 等），只取时间本身
         let cleaned = raw
             .trimmingCharacters(in: .whitespaces)
+            .components(separatedBy: .whitespaces)
+            .first?
             .replacingOccurrences(of: ",", with: ".")
+            ?? ""
         let parts = cleaned.components(separatedBy: ":")
-        guard parts.count == 3,
-              let hours = Double(parts[0]),
-              let minutes = Double(parts[1]),
-              let seconds = Double(parts[2]) else { return nil }
-        return hours * 3600 + minutes * 60 + seconds
+        // SRT: HH:MM:SS.mmm；VTT 允许 MM:SS.mmm
+        switch parts.count {
+        case 3:
+            guard let h = Double(parts[0]), let m = Double(parts[1]), let s = Double(parts[2]) else { return nil }
+            return h * 3600 + m * 60 + s
+        case 2:
+            guard let m = Double(parts[0]), let s = Double(parts[1]) else { return nil }
+            return m * 60 + s
+        default:
+            return nil
+        }
     }
 
     static func stripTags(_ text: String) -> String {
         text.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+    }
+}
+
+
+/// 字幕文本入口：按内容自动识别 WebVTT / SRT（源返回的字幕两种都有）
+public enum SubtitleText {
+    public static func parse(_ text: String) -> [SubtitleCue] {
+        let normalized = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .replacingOccurrences(of: "\u{FEFF}", with: "")
+        let head = normalized.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        if head.hasPrefix("WEBVTT") || head.contains("WEBVTT") {
+            return parseVTT(normalized)
+        }
+        return SRTParser.parse(normalized)
+    }
+
+    static func parseVTT(_ text: String) -> [SubtitleCue] {
+        var cues: [SubtitleCue] = []
+        for block in text.components(separatedBy: "\n\n") {
+            let lines = block
+                .split(separator: "\n", omittingEmptySubsequences: false)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+            // 跳过头部/注释/样式块
+            if let first = lines.first(where: { !$0.isEmpty }),
+               first.hasPrefix("WEBVTT") || first.hasPrefix("NOTE") ||
+               first.hasPrefix("STYLE") || first.hasPrefix("REGION") {
+                continue
+            }
+            guard let arrow = lines.firstIndex(where: { $0.contains("-->") }) else { continue }
+            let times = lines[arrow].components(separatedBy: "-->")
+            guard times.count >= 2,
+                  let start = SRTParser.parseTime(times[0]),
+                  let end = SRTParser.parseTime(times[1]) else { continue }
+            let body = lines[(arrow + 1)...]
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n")
+            guard !body.isEmpty else { continue }
+            cues.append(SubtitleCue(start: start, end: max(end, start),
+                                    text: SRTParser.stripTags(body)))
+        }
+        return cues.sorted { $0.start < $1.start }
+    }
+}
+
+/// 在线字幕下载 + 解析（源内置字幕 / 后续手动搜索共用）
+public enum SubtitleLoadError: LocalizedError, Sendable {
+    case httpStatus(Int)
+    case undecodable
+    case empty
+
+    public var errorDescription: String? {
+        switch self {
+        case .httpStatus(let code): return "字幕下载失败：HTTP \(code)"
+        case .undecodable: return "字幕文件编码不支持"
+        case .empty: return "字幕文件里没有解析到内容（可能不是 SRT/VTT）"
+        }
+    }
+}
+
+public struct SubtitleLoader: Sendable {
+    private let http: HTTPFetching
+
+    public init(http: HTTPFetching = HttpClient()) {
+        self.http = http
+    }
+
+    public func cues(from url: URL, headers: [String: String] = [:]) async throws -> [SubtitleCue] {
+        let (data, response) = try await http.get(url, headers: headers)
+        guard (200..<300).contains(response.statusCode) else {
+            throw SubtitleLoadError.httpStatus(response.statusCode)
+        }
+        guard let text = LiveTextDecoder.decode(data) else { throw SubtitleLoadError.undecodable }
+        let cues = SubtitleText.parse(text)
+        guard !cues.isEmpty else { throw SubtitleLoadError.empty }
+        return cues
     }
 }

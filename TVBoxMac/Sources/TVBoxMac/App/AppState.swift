@@ -23,6 +23,7 @@ final class AppState: ObservableObject {
     let historyStore = HistoryStore()
     let liveClient = LiveClient()
     let streamPreflight = StreamPreflight()
+    let subtitleLoader = SubtitleLoader()
 
     var hasConfig: Bool { !configs.isEmpty }
 
