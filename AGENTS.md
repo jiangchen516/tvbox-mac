@@ -40,9 +40,9 @@ bash scripts/make-app-bundle.sh
 
 ## 本地模型与协作
 
-- 默认由主模型（saia，按调用次数限额）主导；本地 omlx（`provider: "omlx"`、`model: "Inkling-2-Mini-oQ4e-mtp"`）只在这些情况用：
-  额度紧张、任务需要多轮「编译→修错」、或可以后台跑不阻塞。
+- 默认走 saia（速度优先；限额已翻倍，不再为省调用而派单）。本地 omlx（`provider: "omlx"`、`model: "Inkling-2-Mini-oQ4e-mtp"`）只在这些情况用：
+  离线/断网、可以后台慢慢跑的批量活、或 saia 不可用时的后备。
 - 调 omlx **必须显式带 provider/model**：漏写会静默回退到 saia。
 - 派给 omlx 的任务单：可改文件白名单（≤4 个文件）、验收命令、报告 ≤40 行、禁止 commit/push/打包；
   主代理必须 review diff、自己跑完上面三条命令再提交。
-- omlx 速度约 15 tok/s，**小任务不要派**（派单+验收至少花 2 次主模型调用）。
+- omlx 速度约 15 tok/s，**小任务不要派**；派单本身要 2 次调用，只有「多轮编译-修错」或「纯机械批量」才值得。
