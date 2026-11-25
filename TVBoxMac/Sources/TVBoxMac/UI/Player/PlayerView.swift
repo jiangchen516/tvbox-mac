@@ -4,6 +4,7 @@ import TVBoxMacCore
 #if canImport(AVKit)
 import AVKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct PlayerView: View {
     @EnvironmentObject var appState: AppState
@@ -42,6 +43,10 @@ struct PlayerView: View {
     @State private var lastLineFailure: String?
     // 方向键监听：左右跳转、上下吞掉（原来会误触发暂停）
     @State private var keyMonitor: Any?
+    // 外挂 SRT 字幕：解析成 cue 后按播放时间叠加显示（AVPlayer 不原生支持外挂字幕）
+    @State private var subtitleCues: [SubtitleCue] = []
+    @State private var currentCue: SubtitleCue?
+    @State private var subtitleError: String?
     // 只在真正起播后写观看历史：解析成功但随后失败/换线的线路不记入历史
     @State private var shouldRecordHistory = false
     @State private var historyRecorded = false
@@ -51,6 +56,19 @@ struct PlayerView: View {
         // 与 AVPlayerView 悬停出现的原生进度条（覆盖画面底部）不重叠
         VStack(spacing: 0) {
             videoArea
+                .overlay(alignment: .bottom) {
+                    if let cue = currentCue {
+                        Text(cue.text)
+                            .font(.title3)
+                            .foregroundStyle(.white)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 10).padding(.vertical, 4)
+                            .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 6))
+                            .padding(.horizontal, 40)
+                            .padding(.bottom, 64)
+                            .allowsHitTesting(false)
+                    }
+                }
             if let err = resolveError {
                 errorArea(err)
             }
@@ -86,6 +104,14 @@ struct PlayerView: View {
             // 明确标为主全屏窗口，macOS 才会为它建立独立的全屏 Space。
             window?.collectionBehavior.insert(.fullScreenPrimary)
         })
+        .alert("字幕", isPresented: Binding(
+            get: { subtitleError != nil },
+            set: { if !$0 { subtitleError = nil } }
+        )) {
+            Button("好") { subtitleError = nil }
+        } message: {
+            Text(subtitleError ?? "")
+        }
         .onExitCommand {
             // Esc：退出 macOS 原生全屏
             if isFullscreen { exitFullscreen() }
@@ -207,6 +233,11 @@ struct PlayerView: View {
             guard shouldRecordHistory, !historyRecorded, t > 1 else { return }
             historyRecorded = true
             recordHistoryNow()
+        }
+        .onChange(of: controller.currentTime) { t in
+            guard !subtitleCues.isEmpty else { return }
+            let cue = SRTParser.cue(at: t, in: subtitleCues)
+            if cue != currentCue { currentCue = cue }
         }
         .onChange(of: controller.error) { err in
             // 播放中断流可自动换线；睡醒后的暂停恢复必须等用户点播放/重连。
@@ -410,6 +441,24 @@ struct PlayerView: View {
             .fixedSize()
             .tint(.white)
 
+            Menu {
+                Button("选择字幕文件…") { pickSubtitle() }
+                if !subtitleCues.isEmpty {
+                    Button("关闭字幕") {
+                        subtitleCues = []
+                        currentCue = nil
+                        PlayerLog.append("📝 字幕已关闭")
+                    }
+                }
+            } label: {
+                Label(subtitleCues.isEmpty ? "字幕" : "字幕 \(subtitleCues.count)",
+                      systemImage: "captions.bubble")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .tint(.white)
+            .help("加载外挂 SRT 字幕")
+
             if episodes.count > 1 {
                 Button {
                     guard currentIndex < episodes.count - 1, let onSwitchEpisode else { return }
@@ -457,6 +506,35 @@ struct PlayerView: View {
         .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { _ in
             controller.isPlaying = false
         }
+    }
+
+    // MARK: - 字幕
+
+    private func pickSubtitle() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        if let srt = UTType(filenameExtension: "srt") {
+            panel.allowedContentTypes = [srt]
+        }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        loadSubtitle(url)
+    }
+
+    private func loadSubtitle(_ url: URL) {
+        guard let data = try? Data(contentsOf: url),
+              let text = LiveTextDecoder.decode(data) else {
+            subtitleError = "字幕读取失败：\(url.lastPathComponent)"
+            return
+        }
+        let cues = SRTParser.parse(text)
+        guard !cues.isEmpty else {
+            subtitleError = "没有解析到字幕：\(url.lastPathComponent)"
+            return
+        }
+        subtitleCues = cues
+        currentCue = SRTParser.cue(at: controller.currentTime, in: cues)
+        PlayerLog.append("📝 字幕已加载：\(url.lastPathComponent)（\(cues.count) 条）")
     }
 
     /// 起播确认后写历史（失败线路不写）

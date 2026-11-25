@@ -198,9 +198,12 @@ public actor ManagedAndroidSpiderClient: VodFetching {
             if let mp4 = await Self.bilibiliMP4URL(episode: episode, http: http) {
                 PlayerLog.append("▶ B站 DASH → mp4 回退: \(mp4.prefix(90))")
                 rawURL = mp4
-            } else {
+            } else if Self.looksLikeBilibiliDASH(episode: episode) {
                 throw ManagedAndroidSpiderError.invalidResponse(
                     "该视频只提供 DASH 流（AVPlayer 不支持），且 B 站 mp4 回退失败（可能需要登录）")
+            } else {
+                throw ManagedAndroidSpiderError.invalidResponse(
+                    "该线路只提供 DASH 流（AVPlayer 不支持 MPD），请换线路或换源")
             }
         }
         // Bridge 返回的地址指向安卓侧 loopback（guest:9978）；宿主机通过 adb 端口转发
@@ -232,6 +235,12 @@ public actor ManagedAndroidSpiderClient: VodFetching {
         }
         PlayerLog.append("▶ play URL 改写: \(rawURL.prefix(80)) → \(hostPlayURL.prefix(80))")
         return hostPlayURL
+    }
+
+    /// B 站剧集 url 形如 "avid+cid+…"；非 B 站 DASH 没有 mp4 回退可试。
+    private static func looksLikeBilibiliDASH(episode: Episode) -> Bool {
+        let parts = episode.url.components(separatedBy: "+")
+        return parts.count >= 2 && Int(parts[0]) != nil && Int(parts[1]) != nil
     }
 
     /// 用 B 站 playurl 接口把 DASH 集转换为可直连的 mp4。

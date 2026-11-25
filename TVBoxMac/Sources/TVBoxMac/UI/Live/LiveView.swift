@@ -398,6 +398,10 @@ struct LiveView: View {
     private var topBar: some View {
         HStack(spacing: 12) {
             if let channel = currentChannel {
+                if let logo = channel.logo, !logo.isEmpty {
+                    RemoteImage(rawPic: logo, cornerRadius: 4)
+                        .frame(width: 30, height: 30)
+                }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(channel.name)
                         .font(.headline).foregroundStyle(.white)
@@ -570,6 +574,10 @@ private struct LiveChannelRow: View {
 
     var body: some View {
         HStack(spacing: 6) {
+            if let logo = channel.logo, !logo.isEmpty {
+                RemoteImage(rawPic: logo, cornerRadius: 3)
+                    .frame(width: 20, height: 20)
+            }
             Text(channel.name)
                 .lineLimit(1)
                 .foregroundStyle(isCurrent ? Color.accentColor : Color.primary)
