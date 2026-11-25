@@ -23,6 +23,8 @@ struct LiveView: View {
     @State private var currentChannel: LiveChannel?
     @State private var urlIndex: Int = 0
     @State private var playError: String?
+    // 最近一次线路失败原因：保留到真正出画，避免 403 提示一闪而过
+    @State private var lastLineFailure: String?
 
     @State private var showChannelDrawer: Bool = false
     @State private var drawerPinned: Bool = false
@@ -96,14 +98,20 @@ struct LiveView: View {
                 withAnimation(.easeIn(duration: 0.15)) { showChannelDrawer = false }
             }
         }
+        .onChange(of: controller.currentTime) { t in
+            // 真正出画后清掉失败原因
+            if t > 0.5, lastLineFailure != nil { lastLineFailure = nil }
+        }
         .onChange(of: controller.error) { error in
             guard let error, let channel = currentChannel else { return }
             if urlIndex + 1 < channel.urls.count {
                 let message = "线路 \(urlIndex + 1) 播放失败，尝试备用线路…"
+                lastLineFailure = "线路 \(urlIndex + 1)/\(channel.urls.count) 失败：\(error)"
                 play(channel, urlIndex: urlIndex + 1)
                 playError = message
             } else {
                 playError = "播放失败：\(error)"
+                lastLineFailure = nil
                 PlayerLog.append("❌ 直播频道所有线路均失败: \(channel.name)")
             }
         }
@@ -322,6 +330,14 @@ struct LiveView: View {
             VStack(spacing: 0) {
                 topBar
                 Spacer()
+                if let msg = lastLineFailure, playError == nil, !controller.isPlaying {
+                    Text(msg)
+                        .font(.caption).foregroundStyle(.orange)
+                        .lineLimit(2)
+                        .padding(8)
+                        .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
+                        .padding(.bottom, 8)
+                }
                 if let playError {
                     HStack(spacing: 10) {
                         Text(playError)
@@ -514,6 +530,7 @@ struct LiveView: View {
         currentChannel = channel
         urlIndex = index
         playError = nil
+        if index == 0 { lastLineFailure = nil }
         controller.play(url: url, headers: source.playbackHeaders(for: channel))
         PlayerLog.append("📺 直播 \(source.name) · \(channel.group)/\(channel.name)（线路 \(index + 1)/\(channel.urls.count)）→ \(channel.urls[index].prefix(120))")
     }

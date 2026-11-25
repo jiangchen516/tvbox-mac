@@ -47,6 +47,13 @@ final class PlayerLogTests: XCTestCase {
         XCTAssertNil(resolveSpiderURL(nil, against: fty))
         XCTAssertNil(resolveSpiderURL("", against: fty))
     }
+
+    func testLogFileIsIsolatedDuringTests() {
+        #if canImport(ObjectiveC)
+        XCTAssertTrue(PlayerLog.fileURL.path.contains("TVBoxMacTests"),
+                      "测试期间日志应写到临时目录：\(PlayerLog.fileURL.path)")
+        #endif
+    }
 }
 
 /// 测试用 KVC 兼容对象

@@ -346,16 +346,57 @@ struct PlayerView: View {
         // 进度条/播放暂停/音量/画中画用 AVPlayerView 原生控制条（带缓冲段可视化）；
         // 常驻条放：上一集/倍速/下一集 —— 全屏/时间/集数
         HStack(spacing: 16) {
-            Button {
-                guard currentIndex > 0, let onSwitchEpisode else { return }
-                onSwitchEpisode(episodes[currentIndex - 1])
-            } label: {
-                Label("上一集", systemImage: "backward.end.fill")
+            if lineGroups.count > 1 {
+                HStack(spacing: 6) {
+                    Button { switchLine(-1) } label: {
+                        Image(systemName: "chevron.left")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.white)
+                    .help("上一线路")
+
+                    Menu {
+                        ForEach(lineGroups, id: \.self) { g in
+                            Button {
+                                selectLine(g)
+                            } label: {
+                                if g == episode.group {
+                                    Label(g + failedSuffix(g), systemImage: "checkmark")
+                                } else {
+                                    Text(g + failedSuffix(g))
+                                }
+                            }
+                        }
+                    } label: {
+                        Text("线路 \(lineIndex + 1)/\(lineGroups.count)")
+                            .font(.caption)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .tint(.white)
+                    .help("当前线路：\(episode.group)")
+
+                    Button { switchLine(1) } label: {
+                        Image(systemName: "chevron.right")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.white)
+                    .help("下一线路")
+                }
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.white)
-            .disabled(currentIndex == 0 || onSwitchEpisode == nil)
-            .help(currentIndex > 0 ? episodes[currentIndex - 1].title : "已是第一集")
+
+            if episodes.count > 1 {
+                Button {
+                    guard currentIndex > 0, let onSwitchEpisode else { return }
+                    onSwitchEpisode(episodes[currentIndex - 1])
+                } label: {
+                    Label("上一集", systemImage: "backward.end.fill")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.white)
+                .disabled(currentIndex == 0 || onSwitchEpisode == nil)
+                .help(currentIndex > 0 ? episodes[currentIndex - 1].title : "已是第一集")
+            }
 
             Menu {
                 ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0], id: \.self) { r in
@@ -369,16 +410,18 @@ struct PlayerView: View {
             .fixedSize()
             .tint(.white)
 
-            Button {
-                guard currentIndex < episodes.count - 1, let onSwitchEpisode else { return }
-                onSwitchEpisode(episodes[currentIndex + 1])
-            } label: {
-                Label("下一集", systemImage: "forward.end.fill")
+            if episodes.count > 1 {
+                Button {
+                    guard currentIndex < episodes.count - 1, let onSwitchEpisode else { return }
+                    onSwitchEpisode(episodes[currentIndex + 1])
+                } label: {
+                    Label("下一集", systemImage: "forward.end.fill")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.white)
+                .disabled(currentIndex >= episodes.count - 1 || onSwitchEpisode == nil)
+                .help(currentIndex < episodes.count - 1 ? episodes[currentIndex + 1].title : "已是最后一集")
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.white)
-            .disabled(currentIndex >= episodes.count - 1 || onSwitchEpisode == nil)
-            .help(currentIndex < episodes.count - 1 ? episodes[currentIndex + 1].title : "已是最后一集")
 
             Spacer()
 
@@ -425,6 +468,39 @@ struct PlayerView: View {
                               vodPic: vod.vod_pic, episodeTitle: episode.title,
                               episodeGroup: episode.group, position: 0))
         }
+    }
+
+    // MARK: - 线路切换
+
+    private var lineGroups: [String] { vod.playGroups }
+
+    private var lineIndex: Int { lineGroups.firstIndex(of: episode.group) ?? 0 }
+
+    private func failedSuffix(_ group: String) -> String {
+        (playerSession.payload?.failedGroups.contains(group) ?? false) ? "（已失败）" : ""
+    }
+
+    private func switchLine(_ delta: Int) {
+        let groups = lineGroups
+        guard groups.count > 1 else { return }
+        let target = (lineIndex + delta + groups.count) % groups.count
+        selectLine(groups[target])
+    }
+
+    /// 手动选择线路：按“集在组内的位置”对应，清掉该线路的失败标记（= 重试），
+    /// 更新共享 payload 后由 PlayerWindowView 重建播放器。
+    private func selectLine(_ group: String) {
+        guard group != episode.group else { return }
+        guard let pos = episodes.firstIndex(where: { $0.id == episode.id }) else { return }
+        let list = vod.episodes(group: group)
+        guard !list.isEmpty else { return }
+        let cand = list[min(pos, list.count - 1)]
+        var failed = playerSession.payload?.failedGroups ?? []
+        failed.removeAll { $0 == group }
+        playerSession.payload?.failedGroups = failed
+        playerSession.payload?.episode = cand
+        playerSession.payload?.episodes = list
+        PlayerLog.append("⇄ 手动切换到线路[\(group)] 第 \(min(pos, list.count - 1) + 1) 集")
     }
 
     /// 方向键跳转：←/→ 10 秒，Shift+←/→ 30 秒；夹在 [0, duration] 内。

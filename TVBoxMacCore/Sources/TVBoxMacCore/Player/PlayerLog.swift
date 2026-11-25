@@ -14,6 +14,15 @@ public enum PlayerLog {
     }()
 
     public static var fileURL: URL = {
+        // 单元测试隔离：不把测试里的假播放记录写进用户真实日志
+        #if canImport(ObjectiveC)
+        if NSClassFromString("XCTestCase") != nil {
+            let testDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("TVBoxMacTests", isDirectory: true)
+            try? FileManager.default.createDirectory(at: testDir, withIntermediateDirectories: true)
+            return testDir.appendingPathComponent("player.log")
+        }
+        #endif
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("TVBoxMac", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
