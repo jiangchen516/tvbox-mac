@@ -151,7 +151,7 @@ struct SettingsView: View {
 
             GroupBox("关于") {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("TVBoxMac v0.3.0")
+                    Text("TVBoxMac v0.4.0")
                     Text("原生 Swift/SwiftUI 重写，协议层兼容 TVBox 配置生态（CatVod + JS Spider）。")
                         .font(.caption).foregroundStyle(.secondary)
                     Text("仅供个人学习使用；影视源合法性由使用者自行负责。")

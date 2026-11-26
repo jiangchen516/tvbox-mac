@@ -3,7 +3,7 @@
 TVBox 的 macOS 原生移植（Swift + SwiftUI + AVFoundation + JavaScriptCore），协议层兼容 TVBox 配置生态。
 个人学习/自用项目，不内置任何影视源；配置由使用者自行导入，源的合法性与可用性由使用者自行负责。
 
-- 当前版本：`0.3.0`（应用内「设置 → 关于」与 `Info.plist` 同源）
+- 当前版本：`0.4.0`（应用内「设置 → 关于」与 `Info.plist` 同源）
 - 仓库已公开：https://github.com/jiangchen516/tvbox-mac
 - 默认分支：`main`
 
