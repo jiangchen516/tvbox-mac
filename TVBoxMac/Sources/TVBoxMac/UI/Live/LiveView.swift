@@ -8,6 +8,7 @@ import TVBoxMacCore
 #if canImport(AVKit)
 import AVKit
 import AppKit
+import Combine
 
 struct LiveView: View {
     @EnvironmentObject var appState: AppState
@@ -25,6 +26,11 @@ struct LiveView: View {
     @State private var playError: String?
     // 最近一次线路失败原因：保留到真正出画，避免 403 提示一闪而过
     @State private var lastLineFailure: String?
+    // EPG：当前频道的节目单（按频道 + 日期查，缓存 6 小时）
+    @State private var epgPrograms: [EPGProgram] = []
+    @State private var epgChannelID: String?
+    @State private var showEPG: Bool = false
+    @State private var epgNow: Date = .now
 
     @State private var showChannelDrawer: Bool = false
     @State private var drawerPinned: Bool = false
@@ -87,6 +93,8 @@ struct LiveView: View {
             genres = []
             loadError = nil
             loading = true   // 立刻进入加载态，避免闪一下"没有频道"
+            epgPrograms = []
+            epgChannelID = nil
             if let source { Task { await load(source, force: false) } }
         }
         .onChange(of: selectedChannelID) { id in
@@ -131,6 +139,9 @@ struct LiveView: View {
                 drawerPinned = false
                 showChannelDrawer = false
             }
+        }
+        .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { now in
+            epgNow = now
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { note in
             guard let own = hostedWindow, (note.object as? NSWindow) === own else { return }
@@ -407,6 +418,24 @@ struct LiveView: View {
                         .font(.headline).foregroundStyle(.white)
                     Text("\(channel.group)\(channel.urls.count > 1 ? " · 线路 \(urlIndex + 1)/\(channel.urls.count)" : "")")
                         .font(.caption).foregroundStyle(.white.opacity(0.65))
+                    if let program = currentEPGProgram {
+                        Button { showEPG = true } label: {
+                            HStack(spacing: 6) {
+                                Text(program.title).lineLimit(1)
+                                Text("\(clockString(program.start))–\(clockString(program.end))")
+                                    .font(.caption2)
+                                    .foregroundStyle(.white.opacity(0.5))
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.85))
+                        }
+                        .buttonStyle(.plain)
+                        .help("查看节目单")
+                        .popover(isPresented: $showEPG, arrowEdge: .bottom) { epgPopover }
+                    } else if epgPrograms.isEmpty, let template = source?.epg, !template.isEmpty {
+                        Text("节目单加载中…")
+                            .font(.caption2).foregroundStyle(.white.opacity(0.45))
+                    }
                 }
             } else {
                 Text(source?.name ?? "电视直播")
@@ -460,6 +489,79 @@ struct LiveView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
         .background(.black.opacity(0.45))
+    }
+
+    // MARK: - EPG
+
+    private var currentEPGProgram: EPGProgram? {
+        epgPrograms.first { $0.contains(epgNow) }
+    }
+
+    private var upcomingEPGPrograms: [EPGProgram] {
+        epgPrograms.filter { $0.end > epgNow }.sorted { $0.start < $1.start }
+    }
+
+    private func loadEPG(for channel: LiveChannel) {
+        guard let source, let template = source.epg, !template.isEmpty else {
+            epgPrograms = []
+            epgChannelID = nil
+            return
+        }
+        guard epgChannelID != channel.id else { return }
+        epgChannelID = channel.id
+        epgPrograms = []
+        let headers = source.requestHeaders
+        Task {
+            let list = (try? await appState.epgClient.schedule(
+                channel: channel.name, template: template, hours: 12, headers: headers)) ?? []
+            guard currentChannel?.id == channel.id else { return }
+            epgPrograms = list
+            PlayerLog.append("📅 EPG \(channel.name)：\(list.count) 条")
+        }
+    }
+
+    private var epgPopover: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("\(currentChannel?.name ?? "") 节目单").font(.headline)
+            if upcomingEPGPrograms.isEmpty {
+                Text("没有节目预告").font(.callout).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(upcomingEPGPrograms.prefix(40)) { program in
+                            HStack(alignment: .top, spacing: 8) {
+                                Text(scheduleTime(program.start))
+                                    .font(.caption).monospacedDigit()
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 86, alignment: .leading)
+                                Text(program.title)
+                                    .font(.callout)
+                                    .foregroundStyle(program.contains(epgNow) ? Color.accentColor : .primary)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(width: 340, height: 300)
+            }
+        }
+        .padding(12)
+    }
+
+    private func clockString(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
+    }
+
+    /// 节目单里跨天的条目带日期，避免“明天 00:30”看起来像今天
+    private func scheduleTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = Calendar.current.isDateInToday(date) ? "HH:mm" : "MM-dd HH:mm"
+        return formatter.string(from: date)
     }
 
     private var emptySources: some View {
@@ -537,6 +639,7 @@ struct LiveView: View {
         if index == 0 { lastLineFailure = nil }
         controller.play(url: url, headers: source.playbackHeaders(for: channel))
         PlayerLog.append("📺 直播 \(source.name) · \(channel.group)/\(channel.name)（线路 \(index + 1)/\(channel.urls.count)）→ \(channel.urls[index].prefix(120))")
+        loadEPG(for: channel)
     }
 
     /// 播放器顶栏的 ‹ › 切换同一频道的线路（换台统一在左侧列表点击）。

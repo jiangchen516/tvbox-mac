@@ -24,6 +24,7 @@ final class AppState: ObservableObject {
     let liveClient = LiveClient()
     let streamPreflight = StreamPreflight()
     let subtitleLoader = SubtitleLoader()
+    let epgClient = EPGClient()
 
     var hasConfig: Bool { !configs.isEmpty }
 
