@@ -47,6 +47,9 @@ struct PlayerView: View {
     @State private var subtitleCues: [SubtitleCue] = []
     @State private var currentCue: SubtitleCue?
     @State private var subtitleError: String?
+    @State private var playHeaders: [String: String] = [:]
+    @State private var downloading = false
+    @State private var downloadStatus: String?
     // 源内置字幕（解析结果里的 subtitle 字段）
     @State private var sourceSubtitleURL: URL?
     @State private var subtitleHeaders: [String: String] = [:]
@@ -70,6 +73,17 @@ struct PlayerView: View {
                             .padding(.horizontal, 40)
                             .padding(.bottom, 64)
                             .allowsHitTesting(false)
+                    }
+                }
+                .overlay(alignment: .top) {
+                    if let status = downloadStatus {
+                        Text(status)
+                            .font(.caption)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            .background(.black.opacity(0.7), in: Capsule())
+                            .padding(.top, 56)
+                            .onTapGesture { downloadStatus = nil }
                     }
                 }
             if let err = resolveError {
@@ -467,6 +481,20 @@ struct PlayerView: View {
             .tint(.white)
             .help("加载外挂 SRT 字幕")
 
+            Button {
+                startDownload()
+            } label: {
+                if downloading {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "arrow.down.circle")
+                }
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.white)
+            .disabled(downloading || playUrl == nil)
+            .help("下载当前集到 ~/Downloads/TVBoxMac")
+
             if episodes.count > 1 {
                 Button {
                     guard currentIndex < episodes.count - 1, let onSwitchEpisode else { return }
@@ -513,6 +541,29 @@ struct PlayerView: View {
         .onAppear { controller.startAutoSave() }
         .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { _ in
             controller.isPlaying = false
+        }
+    }
+
+    // MARK: - 下载
+
+    private func startDownload() {
+        guard let url = playUrl, !downloading else { return }
+        downloading = true
+        downloadStatus = "开始下载…"
+        let title = "\(vod.vod_name)-\(episode.title)"
+        Task {
+            do {
+                let result = try await appState.downloadManager.download(
+                    mediaURL: url, headers: playHeaders, title: title)
+                downloadStatus = result.isPlaylist
+                    ? "下载完成：\(result.url.deletingLastPathComponent().lastPathComponent)/index.m3u8"
+                    : "下载完成：\(result.url.lastPathComponent)"
+                PlayerLog.append("⬇️ 下载完成: \(result.url.path)")
+            } catch {
+                downloadStatus = "下载失败：\(error.localizedDescription)"
+                PlayerLog.append("⬇️ 下载失败: \(error.localizedDescription)")
+            }
+            downloading = false
         }
     }
 
@@ -678,6 +729,7 @@ struct PlayerView: View {
                 controller.play(url: playable, headers: headers, resumeAt: resumeAt,
                                 autoPlay: autoPlay, retryWhilePaused: retryWhilePaused)
                 playUrl = playable
+                playHeaders = headers
                 // 源内置字幕：自动加载（失败只记日志，不打扰播放）
                 subtitleHeaders = headers
                 sourceSubtitleURL = resolution.subtitle.flatMap { URL(string: $0) }

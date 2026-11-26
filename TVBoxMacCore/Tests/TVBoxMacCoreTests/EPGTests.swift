@@ -90,4 +90,16 @@ final class EPGTests: XCTestCase {
             XCTFail("错误类型不对: \(error)")
         }
     }
+
+    func testChannelAliasCandidates() {
+        let candidates = EPGChannelAliases.candidates(for: "CCTV-1 综合高清")
+        XCTAssertTrue(candidates.contains("CCTV-1 综合高清"))
+        XCTAssertTrue(candidates.contains("CCTV1"))
+        XCTAssertTrue(candidates.contains("CCTV-1"))
+    }
+
+    func testPlaceholderTitles() {
+        XCTAssertTrue(EPGChannelAliases.isPlaceholder(title: "精彩节目-暂未提供节目预告信息 --免费使用"))
+        XCTAssertFalse(EPGChannelAliases.isPlaceholder(title: "新闻联播"))
+    }
 }

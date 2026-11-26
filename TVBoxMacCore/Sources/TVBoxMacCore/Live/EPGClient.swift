@@ -182,3 +182,37 @@ public actor EPGClient {
         return parts[0] * 3600 + parts[1] * 60 + (parts.count > 2 ? parts[2] : 0)
     }
 }
+
+
+/// 频道名归一化：EPG 接口按名字查，源里的名字常带「高清/HD/频道」等后缀
+public enum EPGChannelAliases {
+    public static func candidates(for raw: String) -> [String] {
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return [] }
+        var out = [name]
+        let collapsed = name.replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "-", with: "")
+        out.append(collapsed)
+        if let cctv = cctvNumber(in: name) {
+            out.append("CCTV-\(cctv)")
+            out.append("CCTV\(cctv)")
+        }
+        var stem = collapsed
+        for suffix in ["高清", "超清", "蓝光", "4K", "HD", "频道"] where stem.hasSuffix(suffix) {
+            stem = String(stem.dropLast(suffix.count))
+        }
+        if !stem.isEmpty, stem != collapsed { out.append(stem) }
+        var seen = Set<String>()
+        return out.filter { seen.insert($0).inserted }.prefix(5).map { $0 }
+    }
+
+    /// EPG 接口会返回「精彩节目-暂未提供节目预告信息」占位条目
+    public static func isPlaceholder(title: String) -> Bool {
+        title.contains("暂未提供") || title.contains("免费使用") || title == "精彩节目"
+    }
+
+    private static func cctvNumber(in name: String) -> String? {
+        guard let range = name.range(of: #"(?i)CCTV[-_ ]?(\d+)"#, options: .regularExpression) else { return nil }
+        return String(name[range].drop(while: { !$0.isNumber }))
+    }
+}

@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- 点播：播放器「下载」按钮，mp4 直下、未加密 HLS 转本地播放列表（存 `~/Downloads/TVBoxMac`）。
+- 直播 EPG：频道名别名兜底（去空格/HD 后缀/CCTV 连字符），过滤「暂未提供」占位节目。
+
 ## 0.4.0 — 2026-11-26
 
 - 点播：源内置字幕（spider 的 `subtitle` 字段）自动加载，支持 SRT/VTT；「字幕」菜单可手动选本地 SRT。

@@ -515,8 +515,18 @@ struct LiveView: View {
         epgLoadFinished = false
         let headers = source.requestHeaders
         Task {
-            let list = (try? await appState.epgClient.schedule(
-                channel: channel.name, template: template, hours: 12, headers: headers)) ?? []
+            var list: [EPGProgram] = []
+            for candidate in EPGChannelAliases.candidates(for: channel.name) {
+                let programs = (try? await appState.epgClient.schedule(
+                    channel: candidate, template: template, hours: 12, headers: headers)) ?? []
+                if programs.contains(where: { !EPGChannelAliases.isPlaceholder(title: $0.title) }) {
+                    list = programs.filter { !EPGChannelAliases.isPlaceholder(title: $0.title) }
+                    if candidate != channel.name {
+                        PlayerLog.append("📅 EPG 名称兜底命中: \(channel.name) → \(candidate)")
+                    }
+                    break
+                }
+            }
             guard currentChannel?.id == channel.id else { return }
             epgLoadFinished = true
             epgPrograms = list

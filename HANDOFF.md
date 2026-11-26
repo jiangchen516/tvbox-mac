@@ -116,6 +116,8 @@ docs/managed-android-runtime.md  模拟器方案与踩坑记录
   - 支持 ASS/SSA 字幕（只取 [Events] 的 Dialogue，剥 `{…}` 样式与 `\N` 换行）；
   - 直播列表落盘缓存（`Application Support/TVBoxMac/LiveCache`，网络失败时兜底 7 天）；
   - B 站：设置里填 SESSDATA 后 playurl 先试 qn=80（1080P），失败回退 360P；播放时带 Cookie/Referer/UA；
+  - 点播下载：播放器控制条「下载」→ `~/Downloads/TVBoxMac`；mp4 直下，未加密 HLS 存为本地播放列表（加密/fMP4 明确拒绝）；
+  - EPG 频道名兜底：原名单查不到有效节目时，自动尝试去空格/去 HD 后缀/CCTV 连字符等别名；占位节目过滤；
   - 直播 EPG：按 `lives[].epg` 的 JSON 模板（`{NAME}` + `date`）按频道查今天/明天，顶栏显示当前节目、点击弹出未来 12 小时节目单；6 小时缓存，失败静默；
   - 非 B 站 DASH 只给明确提示（AVPlayer 不支持 MPD，无通用回退）。
   - 双击全屏、Esc 退出、原生全屏 Space；图钉置顶；
