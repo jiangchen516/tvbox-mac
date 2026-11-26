@@ -106,4 +106,21 @@ extension SubtitleTests {
             XCTFail("错误类型不对: \(error)")
         }
     }
+
+    func testASSParsesDialogueAndStripsTags() {
+        let ass = """
+        [Script Info]
+        Title: 测试
+        [Events]
+        Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+        Dialogue: 0,0:00:01.00,0:00:03.50,Default,,0,0,0,,{\\an8}第一行\\N第二行
+        Dialogue: 0,0:00:05.00,0:00:06.00,Default,,0,0,0,,普通字幕,带逗号
+        """
+        let cues = SubtitleText.parse(ass)
+        XCTAssertEqual(cues.count, 2)
+        XCTAssertEqual(cues[0].text, "第一行\n第二行")
+        XCTAssertEqual(cues[0].start, 1, accuracy: 0.001)
+        XCTAssertEqual(cues[0].end, 3.5, accuracy: 0.001)
+        XCTAssertEqual(cues[1].text, "普通字幕,带逗号")
+    }
 }

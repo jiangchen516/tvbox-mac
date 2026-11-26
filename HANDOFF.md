@@ -113,6 +113,9 @@ docs/managed-android-runtime.md  模拟器方案与踩坑记录
   - 直播失败原因常驻到真正出画；`swift test` 的日志重定向到临时目录，不再污染真实 player.log。
   - 播放器「字幕」菜单加载外挂 SRT（解析 cue 后按时间叠加；AVPlayer 不原生支持外挂字幕）；直播列表/顶栏显示 tvg-logo 台标；
   - 源内置字幕（spider 的 `subtitle` 字段）自动下载并加载，支持 SRT/VTT；guest 端口自动改写为宿主机端口；
+  - 支持 ASS/SSA 字幕（只取 [Events] 的 Dialogue，剥 `{…}` 样式与 `\N` 换行）；
+  - 直播列表落盘缓存（`Application Support/TVBoxMac/LiveCache`，网络失败时兜底 7 天）；
+  - B 站：设置里填 SESSDATA 后 playurl 先试 qn=80（1080P），失败回退 360P；播放时带 Cookie/Referer/UA；
   - 直播 EPG：按 `lives[].epg` 的 JSON 模板（`{NAME}` + `date`）按频道查今天/明天，顶栏显示当前节目、点击弹出未来 12 小时节目单；6 小时缓存，失败静默；
   - 非 B 站 DASH 只给明确提示（AVPlayer 不支持 MPD，无通用回退）。
   - 双击全屏、Esc 退出、原生全屏 Space；图钉置顶；

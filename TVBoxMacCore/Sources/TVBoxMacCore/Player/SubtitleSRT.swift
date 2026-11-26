@@ -86,6 +86,9 @@ public enum SubtitleText {
         if head.hasPrefix("WEBVTT") || head.contains("WEBVTT") {
             return parseVTT(normalized)
         }
+        if head.contains("[EVENTS]") || head.contains("DIALOGUE:") {
+            return ASSParser.parse(normalized)
+        }
         return SRTParser.parse(normalized)
     }
 
@@ -148,5 +151,62 @@ public struct SubtitleLoader: Sendable {
         let cues = SubtitleText.parse(text)
         guard !cues.isEmpty else { throw SubtitleLoadError.empty }
         return cues
+    }
+}
+
+
+/// ASS/SSA 字幕：只取 [Events] 里的 Dialogue 行（样式/特效忽略）
+public enum ASSParser {
+    public static func parse(_ text: String) -> [SubtitleCue] {
+        var inEvents = false
+        var format: [String] = []
+        var cues: [SubtitleCue] = []
+        for raw in text.components(separatedBy: "\n") {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("[") {
+                inEvents = line.lowercased().hasPrefix("[events]")
+                continue
+            }
+            guard inEvents, !line.isEmpty else { continue }
+            let lower = line.lowercased()
+            if lower.hasPrefix("format:") {
+                format = line.dropFirst("format:".count)
+                    .split(separator: ",")
+                    .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+                continue
+            }
+            guard lower.hasPrefix("dialogue:") else { continue }
+            let maxSplits = max(format.count - 1, 1)
+            let fields = line.dropFirst("dialogue:".count)
+                .split(separator: ",", maxSplits: maxSplits, omittingEmptySubsequences: false)
+            let startIndex = format.firstIndex(of: "start") ?? 1
+            let endIndex = format.firstIndex(of: "end") ?? 2
+            let textIndex = format.firstIndex(of: "text") ?? (fields.count - 1)
+            guard fields.indices.contains(startIndex),
+                  fields.indices.contains(endIndex),
+                  fields.indices.contains(textIndex),
+                  let start = parseTime(fields[startIndex]),
+                  let end = parseTime(fields[endIndex]) else { continue }
+            let body = cleanText(String(fields[textIndex]))
+            guard !body.isEmpty else { continue }
+            cues.append(SubtitleCue(start: start, end: max(end, start), text: body))
+        }
+        return cues.sorted { $0.start < $1.start }
+    }
+
+    static func parseTime(_ raw: Substring) -> Double? {
+        let parts = raw.trimmingCharacters(in: .whitespaces).split(separator: ":")
+        guard parts.count == 3,
+              let h = Double(parts[0]),
+              let m = Double(parts[1]),
+              let s = Double(parts[2]) else { return nil }
+        return h * 3600 + m * 60 + s
+    }
+
+    static func cleanText(_ raw: String) -> String {
+        var text = raw.replacingOccurrences(of: "\\{[^}]*\\}", with: "", options: .regularExpression)
+        text = text.replacingOccurrences(of: "\\N", with: "\n")
+            .replacingOccurrences(of: "\\n", with: "\n")
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

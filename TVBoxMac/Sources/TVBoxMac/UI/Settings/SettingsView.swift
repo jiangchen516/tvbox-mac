@@ -11,6 +11,7 @@ struct SettingsView: View {
     @State private var configURL: String = ""
     @State private var importing: Bool = false
     @AppStorage("tvboxmac.prewarmManagedAndroidRuntime") private var prewarmAndroidRuntime = false
+    @AppStorage("tvboxmac.bilibiliSESSDATA") private var bilibiliSESSDATA = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -69,6 +70,17 @@ struct SettingsView: View {
                                     .font(.caption)
                                     .foregroundStyle(.orange)
                             }
+                        }
+                        .padding(4)
+                    }
+
+                    GroupBox("B 站") {
+                        VStack(alignment: .leading, spacing: 6) {
+                            TextField("SESSDATA（可留空）", text: $bilibiliSESSDATA)
+                                .textFieldStyle(.roundedBorder)
+                            Text("登录 bilibili 后从浏览器 Cookie 复制 SESSDATA，可尝试 1080P；留空则匿名 360P。只保存在本机。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                         .padding(4)
                     }

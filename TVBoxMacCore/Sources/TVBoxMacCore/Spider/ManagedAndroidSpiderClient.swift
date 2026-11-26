@@ -261,27 +261,38 @@ public actor ManagedAndroidSpiderClient: VodFetching {
     private static func bilibiliMP4URL(episode: Episode, http: HTTPFetching) async -> String? {
         let parts = episode.url.components(separatedBy: "+")
         guard parts.count >= 2, Int(parts[0]) != nil, Int(parts[1]) != nil else { return nil }
-        let endpoint = "https://api.bilibili.com/x/player/playurl?avid=\(parts[0])&cid=\(parts[1])&qn=64&fnval=1&fourk=0"
-        guard let url = URL(string: endpoint) else { return nil }
-        do {
-            let (data, _) = try await http.get(url, headers: [
-                "Referer": "https://www.bilibili.com/",
-                "User-Agent": bilibiliUserAgent
-            ])
-            struct Resp: Decodable {
-                struct Payload: Decodable {
-                    struct Durl: Decodable { let url: String }
-                    let durl: [Durl]?
-                }
-                let data: Payload?
+        // 设置里填了 SESSDATA 才尝试 1080P（qn=80）；匿名只能 360P
+        let sessdata = (UserDefaults.standard.string(forKey: "tvboxmac.bilibiliSESSDATA") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var headers = [
+            "Referer": "https://www.bilibili.com/",
+            "User-Agent": bilibiliUserAgent
+        ]
+        if !sessdata.isEmpty { headers["Cookie"] = "SESSDATA=\(sessdata)" }
+
+        struct Resp: Decodable {
+            struct Payload: Decodable {
+                struct Durl: Decodable { let url: String }
+                let durl: [Durl]?
             }
-            guard let parsed = try? JSONDecoder().decode(Resp.self, from: data),
-                  let mp4 = parsed.data?.durl?.first?.url, !mp4.isEmpty else { return nil }
-            return mp4
-        } catch {
-            PlayerLog.append("B站 mp4 回退请求失败: \(error.localizedDescription)")
-            return nil
+            let data: Payload?
         }
+
+        for qn in (sessdata.isEmpty ? [64] : [80, 64]) {
+            let endpoint = "https://api.bilibili.com/x/player/playurl?avid=\(parts[0])&cid=\(parts[1])&qn=\(qn)&fnval=1&fourk=0"
+            guard let url = URL(string: endpoint) else { continue }
+            do {
+                let (data, _) = try await http.get(url, headers: headers)
+                if let parsed = try? JSONDecoder().decode(Resp.self, from: data),
+                   let mp4 = parsed.data?.durl?.first?.url, !mp4.isEmpty {
+                    PlayerLog.append("B站 mp4 回退：qn=\(qn)\(sessdata.isEmpty ? "（匿名）" : "（已带 Cookie）")")
+                    return mp4
+                }
+            } catch {
+                PlayerLog.append("B站 mp4 回退请求失败(qn=\(qn)): \(error.localizedDescription)")
+            }
+        }
+        return nil
     }
 
     /// 从 danmaku 字段提取内层 m3u8 代理 URL：

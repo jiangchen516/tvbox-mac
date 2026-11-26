@@ -662,6 +662,9 @@ struct PlayerView: View {
                    host.contains("bilivideo") || host.contains("bilibili") {
                     headers["User-Agent"] = ManagedAndroidSpiderClient.bilibiliUserAgent
                     headers["Referer"] = "https://www.bilibili.com/"
+                    let sessdata = (UserDefaults.standard.string(forKey: "tvboxmac.bilibiliSESSDATA") ?? "")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !sessdata.isEmpty { headers["Cookie"] = "SESSDATA=\(sessdata)" }
                 }
                 guard let url = URL(string: resolved) else {
                     resolveError = "播放地址无效: \(resolved)"
