@@ -31,6 +31,7 @@ struct LiveView: View {
     @State private var epgChannelID: String?
     @State private var showEPG: Bool = false
     @State private var epgNow: Date = .now
+    @State private var epgLoadFinished: Bool = false
 
     @State private var showChannelDrawer: Bool = false
     @State private var drawerPinned: Bool = false
@@ -95,6 +96,7 @@ struct LiveView: View {
             loading = true   // 立刻进入加载态，避免闪一下"没有频道"
             epgPrograms = []
             epgChannelID = nil
+            epgLoadFinished = false
             if let source { Task { await load(source, force: false) } }
         }
         .onChange(of: selectedChannelID) { id in
@@ -432,7 +434,7 @@ struct LiveView: View {
                         .buttonStyle(.plain)
                         .help("查看节目单")
                         .popover(isPresented: $showEPG, arrowEdge: .bottom) { epgPopover }
-                    } else if epgPrograms.isEmpty, let template = source?.epg, !template.isEmpty {
+                    } else if epgPrograms.isEmpty, !epgLoadFinished, let template = source?.epg, !template.isEmpty {
                         Text("节目单加载中…")
                             .font(.caption2).foregroundStyle(.white.opacity(0.45))
                     }
@@ -510,11 +512,13 @@ struct LiveView: View {
         guard epgChannelID != channel.id else { return }
         epgChannelID = channel.id
         epgPrograms = []
+        epgLoadFinished = false
         let headers = source.requestHeaders
         Task {
             let list = (try? await appState.epgClient.schedule(
                 channel: channel.name, template: template, hours: 12, headers: headers)) ?? []
             guard currentChannel?.id == channel.id else { return }
+            epgLoadFinished = true
             epgPrograms = list
             PlayerLog.append("📅 EPG \(channel.name)：\(list.count) 条")
         }
